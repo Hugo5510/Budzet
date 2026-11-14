@@ -22,8 +22,8 @@ const ASSETS = [
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()) // nowa wersja aktywuje się od razu (inaczej stare karty blokują aktualizację)
   );
-  // Nowa wersja czeka, aż użytkownik zaktualizuje w Ustawieniach (komunikat SKIP_WAITING).
 });
 
 self.addEventListener('message', (e) => {
