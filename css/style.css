@@ -327,3 +327,6 @@ details.more[open] summary::before { content: '− '; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 [hidden] { display: none !important; }
+.owed-box { background: var(--card2); border-radius: 12px; padding: 10px 10px 2px; margin-bottom: 12px; }
+.owed-box input { background: var(--card); }
+.owed-box .hint { margin: 0 0 8px; }

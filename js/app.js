@@ -8,7 +8,7 @@ import { resizeImage, scanReceipt, DEFAULT_MODEL } from './receipt.js';
 import { donut, bars } from './charts.js';
 import { mergeSnapshots, stable, core, pull, push, SyncError } from './sync.js';
 
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.2.0';
 
 // ---------------------------------------------------------------- stan
 const S = { entries: [], categories: [], subs: [], debts: [], settings: {} };
@@ -355,7 +355,7 @@ const catIcon = (c) => `<span class="ico" style="--c:${esc(c.color)}">${esc(c.ic
 function entryRow(e) {
   const inc = e.type === 'income';
   const c = inc ? INCOME : cat(e.categoryId);
-  const meta = [inc ? 'Przychód' : c.name, e.sub, e.receiptId ? '🧾' : '', e.subscriptionId ? '🔁' : '', e.debtId ? '🎓' : '']
+  const meta = [inc ? 'Przychód' : c.name, e.sub, e.receiptId ? '🧾' : '', e.subscriptionId ? '🔁' : '', e.debtId ? '🎓' : '', e.owedDebtId ? '↩️ do zwrotu' : '']
     .filter(Boolean).join(' · ');
   return `<button class="row" data-act="editEntry" data-id="${e.id}">
     ${catIcon(c)}
@@ -461,6 +461,7 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
   if (e.categoryId && !list.find((c) => c.id === e.categoryId) && S.categories.find((c) => c.id === e.categoryId)) list.push(cat(e.categoryId));
   const subs = cat(e.categoryId).subs || [];
   const linked = !!e.debtId;
+  const debt = e.owedDebtId ? S.debts.find((d) => d.id === e.owedDebtId) : null;
   const sheet = openSheet(`
     <form data-form="entry" class="entry-form ${e.type === 'income' ? 'is-income' : ''}" novalidate>
       <input type="hidden" name="id" value="${e.id || ''}">
@@ -473,6 +474,16 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       ${linked ? `<p class="hint">Wpis powiązany ze spłatą długu (${esc(e.desc)}). Kwotę zmienisz w zakładce Długi.</p>` : ''}
       <div class="cat-grid expense-only">
         ${list.map((c) => `<button type="button" class="cat-btn ${c.id === e.categoryId ? 'sel' : ''}" data-act="pickCat" data-id="${c.id}" style="--c:${esc(c.color)}"><span class="ico">${esc(c.icon)}</span><span class="cat-name">${esc(c.name)}</span></button>`).join('')}
+      </div>
+      <label class="check expense-only"><input type="checkbox" name="owed" ${debt ? 'checked' : ''}> ↩️ Ktoś mi to odda (dług)</label>
+      <div class="owed-box expense-only" ${debt ? '' : 'hidden'}>
+        <label>Kto jest winny<input name="owedPerson" list="people" value="${esc(debt?.person || '')}" autocomplete="off" placeholder="np. Kasia"></label>
+        <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+        <div class="two">
+          <label>Kwota do zwrotu (zł)<input name="owedAmount" inputmode="decimal" value="${debt ? amountToInput(debt.amount) : ''}" placeholder="cała kwota" autocomplete="off"></label>
+          <label>Termin (opcjonalnie)<input type="date" name="owedDue" value="${esc(debt?.due || '')}"></label>
+        </div>
+        <p class="hint">Cała kwota wydatku liczy się w statystykach. Zwrot od tej osoby nie jest przychodem.</p>
       </div>
       <details class="more" ${entry ? 'open' : ''}>
         <summary>Data, opis, podkategoria, zdjęcie</summary>
@@ -494,6 +505,10 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
   const form = sheet.querySelector('form');
   form.addEventListener('change', (ev) => {
     if (ev.target.name === 'type') form.classList.toggle('is-income', ev.target.value === 'income');
+    if (ev.target.name === 'owed') {
+      form.querySelector('.owed-box').hidden = !ev.target.checked;
+      if (ev.target.checked) form.owedPerson.focus();
+    }
   });
   if (e.receiptId) showReceiptPreview(e.receiptId, sheet.querySelector('.receipt-preview'));
   if (!entry) form.amount.focus();
@@ -533,6 +548,18 @@ FORMS.entry = async (f) => {
     return toast('Wybierz kategorię');
   }
   const date = isValidISO(f.date.value) ? f.date.value : today();
+  // dług powiązany z wydatkiem („ktoś mi to odda”)
+  const owed = type === 'expense' && !!f.owed?.checked;
+  const oldDebt = old?.owedDebtId ? S.debts.find((d) => d.id === old.owedDebtId) : null;
+  let owedPerson = '', owedAmount = 0;
+  if (owed) {
+    owedPerson = f.owedPerson.value.trim();
+    owedAmount = f.owedAmount.value.trim() ? parseAmount(f.owedAmount.value) : amount;
+    if (!owedPerson) { f.owedPerson.classList.add('err'); f.owedPerson.focus(); return toast('Podaj, kto jest Ci winien'); }
+    if (!(owedAmount > 0)) { f.owedAmount.classList.add('err'); return toast('Podaj poprawną kwotę do zwrotu'); }
+    if (owedAmount > amount) { f.owedAmount.classList.add('err'); return toast('Kwota do zwrotu nie może być większa niż wydatek'); }
+    if (oldDebt && owedAmount < paid(oldDebt)) return toast(`Kwota do zwrotu nie może być mniejsza niż już oddane (${fmt(paid(oldDebt))})`);
+  } else if (oldDebt && oldDebt.payments.length && !confirm(`Usunąć powiązany dług (${oldDebt.person}) razem z historią spłat?`)) return;
   const e = {
     ...(old || { id: uid(), createdAt: Date.now() }),
     type, amount, categoryId, date,
@@ -546,6 +573,18 @@ FORMS.entry = async (f) => {
     const prev = e.receiptId;
     e.receiptId = await storeReceipt(blob, date);
     if (prev) { await saveEntry(e); await maybeDeleteReceipt(prev); }
+  }
+  if (owed) {
+    const fields = { person: owedPerson, amount: owedAmount, date, desc: e.desc || cat(categoryId).name, due: isValidISO(f.owedDue.value) ? f.owedDue.value : '' };
+    if (oldDebt) await saveDebt({ ...oldDebt, ...fields });
+    else {
+      const d = { id: uid(), dir: 'in', ...fields, payments: [], kind: 'expense', expenseId: e.id, createdAt: Date.now() };
+      await saveDebt(d);
+      e.owedDebtId = d.id;
+    }
+  } else {
+    if (oldDebt) await removeFrom('debts', S.debts, oldDebt.id);
+    delete e.owedDebtId;
   }
   pendingPhoto = null;
   await saveEntry(e);
@@ -828,6 +867,7 @@ function openDebt(id) {
       <div><small>Pozostało</small><b class="${b > 0 ? (d.dir === 'in' ? 'pos' : 'neg') : ''}">${fmt(Math.max(b, 0))}</b></div>
     </div>
     <p class="muted">${esc(d.desc || '')}${d.desc ? ' · ' : ''}z dnia ${esc(fmtDate(d.date, { year: true }))}${d.due ? ` · termin ${esc(fmtDate(d.due, { year: true }))}` : ''}</p>
+    ${d.expenseId ? '<p class="hint">↩️ Dług powstał z wydatku. Cała kwota wydatku liczy się w statystykach, a spłata to zwrot, nie przychód.</p>' : ''}
     ${b > 0 ? `<form data-form="payment" class="card pay-form">
       <input type="hidden" name="id" value="${d.id}">
       <b>Dodaj spłatę</b>
@@ -1224,7 +1264,9 @@ const ACT = {
   deleteEntry: async (el) => {
     const e = S.entries.find((x) => x.id === el.dataset.id);
     if (!e) return;
-    if (!confirm(e.debtId ? 'Usunąć ten przychód? Usunie to też powiązaną spłatę długu.' : `Usunąć wpis ${fmt(e.amount)}?`)) return;
+    const od = e.owedDebtId ? S.debts.find((d) => d.id === e.owedDebtId) : null;
+    if (!confirm(e.debtId ? 'Usunąć ten przychód? Usunie to też powiązaną spłatę długu.' : `Usunąć wpis ${fmt(e.amount)}?${od ? `\nUsunie też powiązany dług (${od.person}, ${fmt(od.amount)}).` : ''}`)) return;
+    if (od) await removeFrom('debts', S.debts, od.id);
     if (e.debtId) {
       const d = S.debts.find((x) => x.id === e.debtId);
       if (d) { d.payments = d.payments.filter((p) => p.id !== e.paymentId); await saveDebt(d); }
