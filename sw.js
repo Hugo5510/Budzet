@@ -1,6 +1,5 @@
 // Service worker: cache całej aplikacji (działa offline).
 // Po każdej zmianie plików podbij numer wersji, żeby telefony pobrały nową wersję.
-const VERSION = 'budzet-v1.2.7';
 const ASSETS = [
   './',
   './index.html',
@@ -22,8 +21,8 @@ const ASSETS = [
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()) // nowa wersja aktywuje się od razu (inaczej stare karty blokują aktualizację)
   );
-  // Nowa wersja czeka, aż użytkownik zaktualizuje w Ustawieniach (komunikat SKIP_WAITING).
 });
 
 self.addEventListener('message', (e) => {
