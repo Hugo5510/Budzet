@@ -57,6 +57,10 @@ const INCOME = { id: '', name: 'Przychód', icon: '💰', color: '#16a34a', subs
 const cat = (id) => S.categories.find((c) => c.id === id) || UNKNOWN;
 const sumAmt = (arr) => arr.reduce((s, e) => s + e.amount, 0);
 const entriesIn = (p, type) => S.entries.filter((e) => e.type === type && e.date >= p.start && e.date <= p.end);
+// Zwroty od osób za wydatki ("ktoś mi to odda") liczą się do bilansu w dniu spłaty
+const refundsIn = (p) => S.debts
+  .filter((d) => d.kind === 'expense' && d.dir === 'in')
+  .reduce((s, d) => s + d.payments.filter((x) => x.date >= p.start && x.date <= p.end).reduce((a, x) => a + x.amount, 0), 0);
 const paid = (d) => d.payments.reduce((s, p) => s + p.amount, 0);
 const balance = (d) => d.amount - paid(d);
 const subMonthly = (s) => (s.cycle === 'year' ? Math.round(s.amount / 12) : s.amount);
@@ -382,7 +386,7 @@ function groupedList(list, ref = today()) {
 // ---------------------------------------------------------------- Wydatki
 function viewExpenses() {
   const m = getPeriod('month', 0);
-  const out = sumAmt(entriesIn(m, 'expense')), inc = sumAmt(entriesIn(m, 'income'));
+  const out = sumAmt(entriesIn(m, 'expense')), inc = sumAmt(entriesIn(m, 'income')) + refundsIn(m);
   const bal = inc - out;
   const subsSum = S.subs.filter((s) => s.active).reduce((a, s) => a + subMonthly(s), 0);
   const f = UI.f;
@@ -696,7 +700,8 @@ function viewStats() {
   const p = getPeriod(kind, offset), pp = getPeriod(kind, offset - 1);
   const ex = entriesIn(p, 'expense');
   const total = sumAmt(ex), prevTotal = sumAmt(entriesIn(pp, 'expense'));
-  const inc = sumAmt(entriesIn(p, 'income'));
+  const refunds = refundsIn(p);
+  const inc = sumAmt(entriesIn(p, 'income')) + refunds;
   const map = new Map();
   ex.forEach((e) => map.set(e.categoryId, (map.get(e.categoryId) || 0) + e.amount));
   const rows = [...map].map(([id, v]) => ({ id, c: cat(id), v })).sort((a, b) => b.v - a.v);
@@ -720,7 +725,7 @@ function viewStats() {
       <small class="muted">Suma wydatków</small>
       <div class="total">${fmt(total)}</div>
       <div class="cmp">${cmp}</div>
-      <div class="mini-row"><span>Przychody <b class="pos">${fmt(inc)}</b></span><span>Bilans <b class="${inc - total >= 0 ? 'pos' : 'neg'}">${fmt(inc - total, { sign: true })}</b></span></div>
+      <div class="mini-row"><span>Przychody${refunds ? ' (w tym zwroty)' : ''} <b class="pos">${fmt(inc)}</b></span><span>Bilans <b class="${inc - total >= 0 ? 'pos' : 'neg'}">${fmt(inc - total, { sign: true })}</b></span></div>
     </section>
     <section class="card">
       <h3>Wg kategorii</h3>
