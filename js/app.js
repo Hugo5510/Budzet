@@ -69,6 +69,11 @@ const refundList = (p) => S.debts
 const refundsIn = (p) => sumAmt(refundList(p));
 const paid = (d) => d.payments.reduce((s, p) => s + p.amount, 0);
 const balance = (d) => d.amount - paid(d);
+// Podział kosztu: ułamek, jaki ktoś oddaje (1 = całość, 2 = połowa, 3 = 1/3, 4 = 1/4)
+const SHARES = [['1', 'Całość'], ['2', '1/2'], ['3', '1/3'], ['4', '1/4']];
+const shareAmount = (total, n) => Math.round(total / Number(n));
+const shareLabel = (n) => (n === '1' ? 'Całość' : `1/${n}`);
+
 const subMonthly = (s) => (s.cycle === 'year' ? Math.round(s.amount / 12) : s.amount);
 // Realny koszt subskrypcji = kwota minus zwroty od dłużników (za jeden cykl)
 const subOwed = (s) => Math.min(s.amount, (s.debtors || []).reduce((a, d) => a + d.amount, 0));
@@ -539,6 +544,14 @@ function renderList() {
 
 // ---- formularz wpisu (wydatek / przychód)
 let pendingPhoto = null;
+function updateOwedPreview(form) {
+  const el = form.querySelector('.owed-preview');
+  if (!el) return;
+  const amount = parseAmount(form.amount.value), mode = form.owedMode.value;
+  el.hidden = mode === 'custom' || !(amount > 0);
+  if (!el.hidden) el.innerHTML = `Do oddania: <b>${fmt(shareAmount(amount, mode))}</b> <span class="muted">(${shareLabel(mode)} z ${fmt(amount)})</span>`;
+}
+
 function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
   pendingPhoto = photoBlob;
   const e = entry ? { ...entry } : { type: 'expense', amount: null, categoryId: '', date: today(), desc: '', sub: '', ...preset };
@@ -547,7 +560,7 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
   const subs = cat(e.categoryId).subs || [];
   const linked = !!e.debtId;
   const debt = e.owedDebtId ? S.debts.find((d) => d.id === e.owedDebtId) : null;
-  const owedFull = !debt || debt.amount === e.amount;
+  const owedMode = !debt ? '1' : (['1', '2', '3', '4'].find((n) => e.amount && shareAmount(e.amount, n) === debt.amount) || 'custom');
   const sheet = openSheet(`
     <form data-form="entry" class="entry-form ${e.type === 'income' ? 'is-income' : ''}" novalidate>
       <input type="hidden" name="id" value="${e.id || ''}">
@@ -565,13 +578,13 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       <div class="owed-box expense-only" ${debt ? '' : 'hidden'}>
         <label>Kto jest winny<input name="owedPerson" list="people" value="${esc(debt?.person || '')}" autocomplete="off" placeholder="np. Kasia"></label>
         <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
-        <input type="hidden" name="owedMode" value="${owedFull ? 'full' : 'custom'}">
+        <input type="hidden" name="owedMode" value="${owedMode}">
         <div class="seg owed-mode">
-          <button type="button" class="${owedFull ? 'on' : ''}" data-act="owedMode" data-mode="full">Cała kwota</button>
-          <button type="button" class="${owedFull ? '' : 'on'}" data-act="owedMode" data-mode="custom">Własna kwota</button>
+          ${[...SHARES, ['custom', 'Własna']].map(([k, l]) => `<button type="button" class="${owedMode === k ? 'on' : ''}" data-act="owedMode" data-mode="${k}">${l}</button>`).join('')}
         </div>
+        <p class="hint owed-preview" hidden></p>
         <div class="two">
-          <label class="owed-amount" ${owedFull ? 'hidden' : ''}>Kwota do zwrotu (zł)<input name="owedAmount" inputmode="decimal" value="${debt && !owedFull ? amountToInput(debt.amount) : ''}" autocomplete="off"></label>
+          <label class="owed-amount" ${owedMode === 'custom' ? '' : 'hidden'}>Kwota do zwrotu (zł)<input name="owedAmount" inputmode="decimal" value="${debt && owedMode === 'custom' ? amountToInput(debt.amount) : ''}" autocomplete="off"></label>
           <label>Termin (opcjonalnie)<input type="date" name="owedDue" value="${esc(debt?.due || '')}"></label>
         </div>
         <p class="hint">Cała kwota wydatku liczy się w statystykach, a zwrot od tej osoby pomniejsza wydatki w dniu spłaty.</p>
@@ -601,6 +614,8 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       if (ev.target.checked) form.owedPerson.focus();
     }
   });
+  form.addEventListener('input', () => updateOwedPreview(form));
+  updateOwedPreview(form);
   if (e.receiptId) showReceiptPreview(e.receiptId, sheet.querySelector('.receipt-preview'));
   if (!entry) form.amount.focus();
 }
@@ -645,7 +660,7 @@ FORMS.entry = async (f) => {
   let owedPerson = '', owedAmount = 0;
   if (owed) {
     owedPerson = f.owedPerson.value.trim();
-    owedAmount = f.owedMode.value === 'full' || !f.owedAmount.value.trim() ? amount : parseAmount(f.owedAmount.value);
+    owedAmount = f.owedMode.value === 'custom' ? (f.owedAmount.value.trim() ? parseAmount(f.owedAmount.value) : amount) : shareAmount(amount, f.owedMode.value);
     if (!owedPerson) { f.owedPerson.classList.add('err'); f.owedPerson.focus(); return toast('Podaj, kto jest Ci winien'); }
     if (!(owedAmount > 0)) { f.owedAmount.classList.add('err'); return toast('Podaj poprawną kwotę do zwrotu'); }
     if (owedAmount > amount) { f.owedAmount.classList.add('err'); return toast('Kwota do zwrotu nie może być większa niż wydatek'); }
@@ -736,8 +751,9 @@ function openSubs() {
 
 const debtorRow = (d = {}) => `<div class="debtor-row">
   <input name="dPerson" list="people" value="${esc(d.person || '')}" placeholder="Kto" autocomplete="off">
-  <input name="dAmount" inputmode="decimal" value="${d.amount ? amountToInput(d.amount) : ''}" placeholder="Kwota zł" autocomplete="off">
-  <button type="button" class="icon-btn" data-act="removeDebtor" aria-label="Usuń dłużnika">✕</button></div>`;
+  <input name="dAmount" inputmode="decimal" value="${d.amount ? amountToInput(d.amount) : ''}" placeholder="Kwota zł" autocomplete="off" ${d.div ? 'readonly' : ''}>
+  <button type="button" class="icon-btn" data-act="removeDebtor" aria-label="Usuń dłużnika">✕</button>
+  <select name="dDiv" aria-label="Podział">${[['0', 'Własna kwota'], ...SHARES.map(([k, l]) => [k, k === '1' ? 'Całość' : `Oddaje ${l}`])].map(([k, l]) => `<option value="${k}" ${String(d.div || 0) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
 
 function openSubForm(s = null) {
   const v = s || { name: '', amount: null, categoryId: 'c_subskrypcje', cycle: 'month', day: parseISO(today()).getDate(), month: parseISO(today()).getMonth() + 1, start: today(), active: true };
@@ -771,7 +787,16 @@ function openSubForm(s = null) {
     </form>`);
   const f = sheet.querySelector('form');
   f.cycle.addEventListener('change', () => (f.querySelector('.year-only').hidden = f.cycle.value !== 'year'));
+  const syncDebtors = () => {
+    const total = parseAmount(f.amount.value);
+    $$('.debtor-row', f).forEach((row) => {
+      const n = row.querySelector('[name=dDiv]').value, inp = row.querySelector('[name=dAmount]');
+      inp.readOnly = n !== '0';
+      if (n !== '0') inp.value = total > 0 ? amountToInput(shareAmount(total, n)) : '';
+    });
+  };
   const sumHint = () => {
+    syncDebtors();
     const total = parseAmount(f.amount.value);
     const owed = $$('[name=dAmount]', f).reduce((a, i) => a + (parseAmount(i.value) || 0), 0);
     const el = f.querySelector('.debtors-sum');
@@ -779,6 +804,7 @@ function openSubForm(s = null) {
     if (!el.hidden) el.innerHTML = `Mój koszt za cykl: <b>${fmt(Math.max(total - owed, 0))}</b> <span class="muted">(${fmt(total)})</span>`;
   };
   f.addEventListener('input', sumHint);
+  f.addEventListener('change', sumHint);
   f.addEventListener('click', () => setTimeout(sumHint, 0));
   sumHint();
 }
@@ -794,7 +820,7 @@ FORMS.sub = async (f) => {
     if (!person && !aRaw) continue;
     const a = parseAmount(aRaw);
     if (!person || !(a > 0)) return toast('Dłużnik: podaj osobę i kwotę');
-    debtors.push({ person, amount: a });
+    debtors.push({ person, amount: a, div: Number(row.querySelector('[name=dDiv]').value) });
   }
   if (debtors.reduce((t, d) => t + d.amount, 0) > amount) return toast('Suma zwrotów nie może być większa niż kwota subskrypcji');
   const start = isValidISO(f.start.value) ? f.start.value : today();
@@ -1531,6 +1557,7 @@ const ACT = {
     $$('.owed-mode button', form).forEach((b) => b.classList.toggle('on', b === el));
     const custom = el.dataset.mode === 'custom';
     form.querySelector('.owed-amount').hidden = !custom;
+    updateOwedPreview(form);
     if (custom) form.owedAmount.focus();
   },
   checkUpdate: () => checkUpdate(),
