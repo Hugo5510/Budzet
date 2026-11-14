@@ -1132,7 +1132,6 @@ function viewSettings() {
         <label class="btn ghost">⬆️ Importuj kopię (JSON)<input type="file" accept="application/json,.json" id="import-file" hidden></label>
         <button class="btn ghost" data-act="exportCSV">📄 Eksportuj wydatki (CSV)</button>
       </div>
-      <p class="hint">Dane są tylko na tym urządzeniu. Rób kopię regularnie — usunięcie danych przeglądarki skasuje budżet.</p>
       <h3>Dane demo</h3>
       <div class="btn-col">
         ${S.settings.demoActive ? '<button class="btn ghost" data-act="clearDemo">🧹 Wyczyść dane demo</button>' : '<button class="btn ghost" data-act="loadDemo">✨ Wczytaj dane demo</button>'}
@@ -1141,7 +1140,6 @@ function viewSettings() {
     </section>
     <section class="card about">
       <p><b>Budżet</b> v${APP_VERSION} · działa offline · ${S.entries.length} wpisów</p>
-      <p class="hint">Dodaj do ekranu głównego: Android (Chrome) → menu ⋮ → „Zainstaluj aplikację”; iPhone (Safari) → Udostępnij → „Do ekranu początkowego”.</p>
     </section>`;
 }
 
