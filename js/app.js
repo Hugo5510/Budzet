@@ -115,7 +115,10 @@ function refreshSettings() { if (UI.tab === 'settings' && !$('#sheet-root.open')
 
 function watchWorker(reg) {
   const mark = (w) => {
-    if (w && navigator.serviceWorker.controller) { UI.update.ready = true; refreshSettings(); }
+    if (w && navigator.serviceWorker.controller) {
+      if (!UI.update.ready) toast('Dostępna nowa wersja — zaktualizuj w Ustawieniach');
+      UI.update.ready = true; refreshSettings();
+    }
   };
   mark(reg.waiting);
   reg.addEventListener('updatefound', () => {
@@ -140,7 +143,11 @@ async function initUpdates() {
     watchWorker(reg);
     const ready = await sw.ready;
     ready.active?.postMessage({ type: 'GET_VERSION' });
-    reg.update().catch(() => {});
+    const recheck = () => reg.update().catch(() => {});
+    recheck();
+    // Długo otwarta karta (np. na komputerze) nie przeładowuje się sama, więc sprawdzamy przy powrocie do niej i co godzinę
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') recheck(); });
+    setInterval(recheck, 60 * 60 * 1000);
   } catch (e) { console.warn('SW', e); }
 }
 
