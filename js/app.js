@@ -70,6 +70,11 @@ const refundsIn = (p) => sumAmt(refundList(p));
 const paid = (d) => d.payments.reduce((s, p) => s + p.amount, 0);
 const balance = (d) => d.amount - paid(d);
 const subMonthly = (s) => (s.cycle === 'year' ? Math.round(s.amount / 12) : s.amount);
+// Realny koszt subskrypcji = kwota minus zwroty od dłużników (za jeden cykl)
+const subOwed = (s) => Math.min(s.amount, (s.debtors || []).reduce((a, d) => a + d.amount, 0));
+const subMine = (s) => { const m = s.amount - subOwed(s); return s.cycle === 'year' ? Math.round(m / 12) : m; };
+// "44,50 zł (60,00 zł)": mój koszt, w nawiasie całość; bez dłużników tylko jedna kwota
+const mineAndTotal = (mine, total, opts) => (mine === total ? fmt(total, opts) : `${fmt(mine, opts)} <span class="muted">(${fmt(total, opts)})</span>`);
 const byDateDesc = (a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0);
 const people = () => [...new Set(S.debts.map((d) => d.person.trim()))].sort((a, b) => a.localeCompare(b, 'pl'));
 
@@ -464,6 +469,7 @@ function viewExpenses() {
   const out = sumAmt(entriesIn(m, 'expense')) - refundsIn(m), inc = sumAmt(entriesIn(m, 'income'));
   const bal = inc - out;
   const subsSum = S.subs.filter((s) => s.active).reduce((a, s) => a + subMonthly(s), 0);
+  const subsMine = S.subs.filter((s) => s.active).reduce((a, s) => a + subMine(s), 0);
   const f = UI.f;
   const fActive = f.cat || f.from || f.to || f.type;
   return `
@@ -478,7 +484,7 @@ function viewExpenses() {
     </section>
     <div class="chips">
       <button class="chip" data-act="openKorki">🎓 Korki</button>
-      <button class="chip" data-act="openSubs">🔁 Subskrypcje · ${fmt(subsSum)}/mies.</button>
+      <button class="chip" data-act="openSubs">🔁 Subskrypcje · ${subsMine === subsSum ? fmt(subsSum) : `${fmt(subsMine)} (${fmt(subsSum)})`}/mies.</button>
       <button class="chip" data-act="addIncome">💰 Przychód</button>
     </div>
     <div class="searchbar">
@@ -714,12 +720,15 @@ FORMS.korki = async (f) => {
 function openSubs() {
   const act = S.subs.filter((s) => s.active), inactive = S.subs.filter((s) => !s.active);
   const total = act.reduce((a, s) => a + subMonthly(s), 0);
+  const mine = act.reduce((a, s) => a + subMine(s), 0);
   const row = (s) => `<button class="row" data-act="editSub" data-id="${s.id}">${catIcon(cat(s.categoryId))}
     <span class="row-main"><span class="row-title">${esc(s.name)}</span><span class="row-sub">${s.cycle === 'year' ? `co rok, ${s.day} ${['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'][(s.month || 1) - 1]}` : `co miesiąc, ${s.day}. dnia`}${s.debtors?.length ? ` · ↩️ ${s.debtors.length} dłużn.` : ''}${s.active ? '' : ' · wstrzymana'}</span></span>
-    <span class="row-amt">${fmt(s.amount)}</span></button>`;
+    <span class="row-amt">${mineAndTotal(s.amount - subOwed(s), s.amount)}${s.debtors?.length ? '<small>mój koszt (całość)</small>' : ''}</span></button>`;
   openSheet(`
     <h2>🔁 Subskrypcje</h2>
-    <div class="card big-num"><small>Aktywne, miesięcznie (roczne / 12)</small><b>${fmt(total)}</b><small>${fmt(total * 12)} rocznie</small></div>
+    <div class="card big-num"><small>Aktywne, miesięcznie (roczne / 12)</small><b>${mineAndTotal(mine, total)}</b>
+      <small>${mineAndTotal(mine * 12, total * 12)} rocznie</small>
+      ${mine === total ? '' : '<small>Pierwsza kwota to mój realny koszt po zwrotach od dłużników, w nawiasie pełna kwota subskrypcji.</small>'}</div>
     ${act.length ? `<div class="card list-card">${act.map(row).join('')}</div>` : '<div class="empty">Brak aktywnych subskrypcji.</div>'}
     ${inactive.length ? `<h3>Wstrzymane</h3><div class="card list-card">${inactive.map(row).join('')}</div>` : ''}
     <button class="btn primary wide" data-act="editSub">+ Dodaj subskrypcję</button>`);
@@ -751,6 +760,7 @@ function openSubForm(s = null) {
       <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
       <div class="debtors">${(v.debtors || []).map(debtorRow).join('')}</div>
       <button type="button" class="btn ghost wide" data-act="addDebtor">+ Dodaj dłużnika</button>
+      <p class="hint debtors-sum" hidden></p>
       <p class="hint">Przy każdym pobraniu subskrypcji powstanie dług „Mi są winni” dla każdej z osób (kwota za jeden cykl). Wydatek liczy się w całości.</p>
       <p class="hint">Wydatek doda się automatycznie w dniu pobrania (przy otwarciu aplikacji). Zaległe terminy od daty startu zostaną uzupełnione.</p>
       <label class="check"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Aktywna</label>
@@ -761,6 +771,16 @@ function openSubForm(s = null) {
     </form>`);
   const f = sheet.querySelector('form');
   f.cycle.addEventListener('change', () => (f.querySelector('.year-only').hidden = f.cycle.value !== 'year'));
+  const sumHint = () => {
+    const total = parseAmount(f.amount.value);
+    const owed = $$('[name=dAmount]', f).reduce((a, i) => a + (parseAmount(i.value) || 0), 0);
+    const el = f.querySelector('.debtors-sum');
+    el.hidden = !(owed > 0 && total > 0);
+    if (!el.hidden) el.innerHTML = `Mój koszt za cykl: <b>${fmt(Math.max(total - owed, 0))}</b> <span class="muted">(${fmt(total)})</span>`;
+  };
+  f.addEventListener('input', sumHint);
+  f.addEventListener('click', () => setTimeout(sumHint, 0));
+  sumHint();
 }
 FORMS.sub = async (f) => {
   const amount = parseAmount(f.amount.value);
