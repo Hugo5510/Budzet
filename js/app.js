@@ -6,8 +6,9 @@ import {
 import { DEFAULT_CATEGORIES, makeDemo } from './demo.js';
 import { resizeImage, scanReceipt, DEFAULT_MODEL } from './receipt.js';
 import { donut, bars } from './charts.js';
+import { mergeSnapshots, stable, core, pull, push, SyncError } from './sync.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.1';
 
 // ---------------------------------------------------------------- stan
 const S = { entries: [], categories: [], subs: [], debts: [], settings: {} };
@@ -23,15 +24,22 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 async function upsert(store, arr, obj) {
+  obj.updatedAt = Date.now(); // potrzebne do synchronizacji (nowsza wersja wygrywa)
   const i = arr.findIndex((x) => x.id === obj.id);
   if (i >= 0) arr[i] = obj;
   else arr.push(obj);
   await db.put(store, obj);
+  scheduleSync();
 }
 async function removeFrom(store, arr, id) {
   const i = arr.findIndex((x) => x.id === id);
   if (i >= 0) arr.splice(i, 1);
   await db.del(store, id);
+  await addTomb(store, id);
+  scheduleSync();
+}
+async function addTomb(store, id) {
+  await setSetting('tombs', { ...(S.settings.tombs || {}), [`${store}:${id}`]: Date.now() });
 }
 const saveEntry = (e) => upsert('entries', S.entries, e);
 const saveDebt = (d) => upsert('debts', S.debts, d);
@@ -73,6 +81,7 @@ async function init() {
       await loadDemo(false);
       await setSetting('initialized', true);
     }
+    await migrateTutoringIncome();
     await runSubscriptions();
   } catch (e) {
     console.error(e);
@@ -81,11 +90,28 @@ async function init() {
   render();
   updateOnline();
   document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState === 'visible' && (await runSubscriptions())) render();
+    if (document.visibilityState !== 'visible') return;
+    if (await runSubscriptions()) render();
+    scheduleSync(300);
   });
+  scheduleSync(300);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
   }
+}
+
+// v1.0.1: spłaty korków to zwroty, nie przychody — usuń wcześniej utworzone wpisy przychodów
+async function migrateTutoringIncome() {
+  if (S.settings.migTutoring) return;
+  const linked = S.entries.filter((e) => e.type === 'income' && e.debtId);
+  for (const e of linked) await removeFrom('entries', S.entries, e.id);
+  for (const d of S.debts) {
+    if (d.payments.some((p) => p.entryId)) {
+      d.payments.forEach((p) => delete p.entryId);
+      await saveDebt(d);
+    }
+  }
+  await setSetting('migTutoring', true);
 }
 
 async function runSubscriptions() {
@@ -95,15 +121,18 @@ async function runSubscriptions() {
     if (!sub.active) continue;
     const dates = subscriptionDueDates(sub, t);
     for (const date of dates) {
+      // stałe id: dwa urządzenia nie zdublują tego samego pobrania
+      const id = `s_${sub.id}_${date}`;
+      if (S.entries.some((e) => e.id === id) || (S.settings.tombs || {})[`entries:${id}`]) continue;
       await saveEntry({
-        id: uid(), type: 'expense', amount: sub.amount, categoryId: sub.categoryId, date,
+        id, type: 'expense', amount: sub.amount, categoryId: sub.categoryId, date,
         desc: sub.name, sub: '', subscriptionId: sub.id, createdAt: Date.now(), demo: !!sub.demo,
       });
       added++;
     }
     if (sub.lastRun !== t) {
       sub.lastRun = t;
-      await saveSub(sub);
+      await db.put('subscriptions', sub); // lokalnie, bez zmiany updatedAt
     }
   }
   return added;
@@ -131,6 +160,133 @@ async function clearDemo() {
   S.subs = S.subs.filter((x) => !x.demo);
   S.debts = S.debts.filter((x) => !x.demo);
   await setSetting('demoActive', false);
+}
+
+// ---------------------------------------------------------------- Synchronizacja (GitHub)
+// Ustawienia tylko lokalne (nie trafiają do kopii JSON ani na GitHub):
+const EXPORT_SKIP = ['apiKey', 'ghToken', 'ghRepo', 'lastSync', 'syncError', 'tombs'];
+const KEEP_LOCAL = [...EXPORT_SKIP, 'model', 'migTutoring'];
+const syncOn = () => !!(S.settings.ghToken && S.settings.ghRepo);
+let syncing = false, syncQueued = false, syncTimer;
+
+function scheduleSync(delay = 2500) {
+  if (!syncOn()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(), delay);
+}
+
+function localSnapshot() {
+  const stripLocal = ({ receiptId, ...rest }) => rest; // zdjęcia paragonów zostają na urządzeniu
+  return {
+    app: 'budzet-sync', v: 1,
+    entries: S.entries.filter((x) => !x.demo).map(stripLocal),
+    categories: S.categories,
+    subscriptions: S.subs.filter((x) => !x.demo),
+    debts: S.debts.filter((x) => !x.demo),
+    tombs: S.settings.tombs || {},
+  };
+}
+
+// Zapisuje wynik scalania w lokalnej bazie. Zwraca true, jeśli coś się zmieniło.
+async function applyMerged(merged) {
+  let changed = false;
+  const stores = { entries: S.entries, categories: S.categories, subscriptions: S.subs, debts: S.debts };
+  for (const [store, arr] of Object.entries(stores)) {
+    const keep = new Set(merged[store].map((r) => r.id));
+    const del = arr.filter((r) => !r.demo && !keep.has(r.id)).map((r) => r.id);
+    const byId = new Map(arr.map((r) => [r.id, r]));
+    const put = [];
+    for (const r of merged[store]) {
+      const cur = byId.get(r.id);
+      const next = store === 'entries' && cur?.receiptId ? { ...r, receiptId: cur.receiptId } : r;
+      if (!cur || stable(cur) !== stable(next)) put.push(next);
+    }
+    if (del.length) await db.delMany(store, del);
+    if (put.length) await db.putMany(store, put);
+    if (del.length || put.length) changed = true;
+  }
+  if (stable(merged.tombs) !== stable(S.settings.tombs || {})) await db.put('settings', { key: 'tombs', value: merged.tombs });
+  if (changed) await load();
+  else S.settings.tombs = merged.tombs;
+  return changed;
+}
+
+function setSyncBadge(state) {
+  const b = $('#sync-badge');
+  if (!b) return;
+  b.hidden = !state;
+  b.className = 'badge sync' + (state === 'err' ? ' err' : '');
+  b.textContent = state === 'err' ? 'błąd sync' : 'sync…';
+}
+
+function syncStatusHTML() {
+  const st = S.settings;
+  if (st.syncError) return `<div class="banner warn">⚠️ ${esc(st.syncError)}</div>`;
+  if (st.lastSync) return `<div class="banner ok">✓ Ostatnia synchronizacja: ${esc(new Date(st.lastSync).toLocaleString('pl-PL'))}</div>`;
+  return '<div class="banner">Jeszcze nie synchronizowano.</div>';
+}
+
+async function syncNow({ manual = false } = {}) {
+  if (!syncOn()) return;
+  if (syncing) { syncQueued = true; return; }
+  if (!navigator.onLine) { if (manual) toast('Brak internetu — zsynchronizuję po powrocie sieci'); return; }
+  syncing = true;
+  setSyncBadge('sync');
+  const cfg = { token: S.settings.ghToken, repo: S.settings.ghRepo };
+  let changed = false, error = null;
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const remote = await pull(cfg);
+      const merged = mergeSnapshots(localSnapshot(), remote?.data || {});
+      if (await applyMerged(merged)) changed = true;
+      if (remote && stable(core(remote.data)) === stable(core(merged))) break;
+      try {
+        await push({ ...cfg, sha: remote?.sha, snapshot: { app: 'budzet-sync', v: 1, updatedAt: Date.now(), ...merged } });
+        break;
+      } catch (e) {
+        if (e.code === 'conflict' && attempt < 3) continue;
+        throw e;
+      }
+    }
+    await setSetting('lastSync', Date.now());
+    await setSetting('syncError', '');
+  } catch (e) {
+    error = e;
+    if (e.code !== 'network') await setSetting('syncError', e.message || 'Błąd synchronizacji');
+    console.warn('sync', e);
+  } finally {
+    syncing = false;
+  }
+  setSyncBadge(error && error.code !== 'network' ? 'err' : '');
+  const el = $('#sync-status');
+  if (el) el.innerHTML = syncStatusHTML();
+  if (changed) render();
+  if (manual) toast(error ? error.message : changed ? 'Zsynchronizowano — pobrano zmiany' : 'Zsynchronizowano');
+  if (syncQueued) { syncQueued = false; scheduleSync(500); }
+  return !error;
+}
+
+function syncCard() {
+  const on = syncOn();
+  return `<section class="card">
+    <h3>☁️ Synchronizacja (GitHub)</h3>
+    ${on ? `<div id="sync-status">${syncStatusHTML()}</div>` : '<p class="hint">Te same dane na telefonie i komputerze. Dane trafiają do Twojego <b>prywatnego</b> repozytorium na GitHubie. Zdjęcia paragonów zostają na urządzeniu, a odczytane z nich pozycje się synchronizują. Dane demo nie są synchronizowane.</p>'}
+    <label>Repozytorium (login/nazwa)<input id="gh-repo" value="${esc(S.settings.ghRepo || '')}" placeholder="hugo5510/budzet-dane" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+    <label>Token GitHub<div class="inline"><input type="password" id="gh-token" value="${esc(S.settings.ghToken || '')}" placeholder="github_pat_…" autocomplete="off" spellcheck="false"><button class="icon-btn" data-act="toggleGh" aria-label="Pokaż token">👁</button></div></label>
+    <div class="row-btns">
+      <button class="btn primary" data-act="saveSync">${on ? 'Zapisz i synchronizuj' : 'Połącz i synchronizuj'}</button>
+      ${on ? '<button class="btn ghost" data-act="syncNow">Synchronizuj teraz</button>' : ''}
+    </div>
+    ${on ? '<button class="btn ghost wide" data-act="stopSync">Wyłącz synchronizację na tym urządzeniu</button>' : ''}
+    <details class="more"><summary>Jak to skonfigurować</summary>
+      <ol class="steps">
+        <li>Na github.com utwórz <b>prywatne</b> repozytorium, np. <code>budzet-dane</code> (zaznacz „Add a README file”).</li>
+        <li>Wejdź na github.com/settings/personal-access-tokens/new → <i>Repository access: Only select repositories</i> → wybierz to repo → <i>Permissions → Contents: Read and write</i> → utwórz token i skopiuj go.</li>
+        <li>Wpisz tutaj nazwę repo i token. Powtórz na drugim urządzeniu (to samo repo, ten sam token).</li>
+      </ol>
+      <p class="hint">Token jest zapisany tylko na tym urządzeniu, tak jak klucz API. Nie trafia do kopii JSON. Jeśli wyciekł, usuń go w ustawieniach GitHuba.</p>
+    </details>
+  </section>`;
 }
 
 // ---------------------------------------------------------------- UI: wspólne
@@ -191,7 +347,7 @@ window.addEventListener('popstate', () => {
 function updateOnline() {
   $('#offline-badge').hidden = navigator.onLine;
 }
-window.addEventListener('online', updateOnline);
+window.addEventListener('online', () => { updateOnline(); scheduleSync(500); });
 window.addEventListener('offline', updateOnline);
 
 const catIcon = (c) => `<span class="ico" style="--c:${esc(c.color)}">${esc(c.icon)}</span>`;
@@ -403,7 +559,7 @@ function openKorki() {
   const last = [...S.debts].filter((d) => d.kind === 'tutoring').sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
   const sheet = openSheet(`
     <h2>🎓 Korepetycje</h2>
-    <p class="hint">Tworzy dług „ta osoba jest mi winna”. Po spłacie kwota trafi do przychodów.</p>
+    <p class="hint">Tworzy dług „ta osoba jest mi winna”. Spłata to zwrot pieniędzy — nie liczy się jako przychód.</p>
     <form data-form="korki">
       <label>Osoba<input name="person" list="people" required autocomplete="off" value="${esc(last?.person || '')}"></label>
       <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
@@ -412,7 +568,7 @@ function openKorki() {
         <label>Data<input type="date" name="date" value="${today()}"></label>
       </div>
       <label>Opis<input name="desc" value="${esc(last?.desc || 'Korepetycje')}"></label>
-      <label class="check"><input type="checkbox" name="paid"> Już zapłacone (od razu do przychodów)</label>
+      <label class="check"><input type="checkbox" name="paid"> Już oddane (od razu jako spłacone)</label>
       <button class="btn primary big wide">Dodaj</button>
     </form>`);
   sheet.querySelector('[name=person]').focus();
@@ -426,7 +582,7 @@ FORMS.korki = async (f) => {
   await saveDebt(d);
   if (f.paid.checked) await addPayment(d, amount, date, '');
   closeSheet();
-  toast(f.paid.checked ? `Korki: +${fmt(amount)} do przychodów` : `${person} jest Ci winna/winien ${fmt(amount)}`);
+  toast(f.paid.checked ? `Korki ${fmt(amount)} — od razu spłacone` : `${person} jest Ci winna/winien ${fmt(amount)}`);
   render();
 };
 
@@ -488,7 +644,10 @@ FORMS.sub = async (f) => {
   await saveSub(s);
   const n = await runSubscriptions();
   closeSheet();
-  toast(n ? `Zapisano. Dodano ${n} wpis(y) z subskrypcji` : 'Zapisano subskrypcję');
+  const next = s.active ? subscriptionDueDates({ ...s, lastRun: today() }, addDays(today(), 400))[0] : null;
+  toast(n ? `Zapisano. Dodano ${n} wpis(y) z subskrypcji`
+    : !s.active ? 'Zapisano — subskrypcja jest wstrzymana, nic się nie doda'
+    : next ? `Zapisano. Pierwsze pobranie: ${fmtDate(next)}` : 'Zapisano subskrypcję');
   render();
 };
 
@@ -678,7 +837,6 @@ function openDebt(id) {
       </div>
       <label>Notatka<input name="note" placeholder="np. przelew, gotówka"></label>
       <div class="row-btns"><button class="btn primary">Zapisz spłatę</button></div>
-      ${d.dir === 'in' && d.kind === 'tutoring' ? '<p class="hint">Spłata korepetycji zostanie dodana do przychodów.</p>' : ''}
     </form>` : '<div class="banner ok">✓ Spłacony w całości — w archiwum.</div>'}
     <h3>Historia</h3>
     <div class="card list-card">
@@ -694,12 +852,7 @@ function openDebt(id) {
 
 async function addPayment(d, amount, date, note) {
   const p = { id: uid(), amount, date, note };
-  d.payments.push(p);
-  if (d.dir === 'in' && d.kind === 'tutoring') {
-    const e = { id: uid(), type: 'income', amount, date, categoryId: null, desc: `Korepetycje – ${d.person}`, sub: '', debtId: d.id, paymentId: p.id, createdAt: Date.now() };
-    p.entryId = e.id;
-    await saveEntry(e);
-  }
+  d.payments.push(p); // spłata to zwrot pieniędzy, nie przychód
   await saveDebt(d);
 }
 
@@ -918,6 +1071,7 @@ function viewSettings() {
       <h3>🔁 Subskrypcje</h3>
       <button class="btn ghost wide" data-act="openSubs">Zarządzaj subskrypcjami (${S.subs.filter((s) => s.active).length} aktywne)</button>
     </section>
+    ${syncCard()}
     <section class="card">
       <h3>💾 Dane i kopia zapasowa</h3>
       <div class="btn-col">
@@ -995,7 +1149,7 @@ function dataURLToBlob(u) {
 
 async function exportJSON() {
   const receipts = await db.all('receipts');
-  const { apiKey, ...settings } = S.settings;
+  const settings = Object.fromEntries(Object.entries(S.settings).filter(([k]) => !EXPORT_SKIP.includes(k)));
   const data = {
     app: 'budzet-pwa', version: 1, exportedAt: new Date().toISOString(),
     entries: S.entries, categories: S.categories, subscriptions: S.subs, debts: S.debts, settings,
@@ -1009,17 +1163,33 @@ async function importJSON(file) {
   try { data = JSON.parse(await file.text()); } catch { return toast('To nie jest poprawny plik JSON'); }
   if (data?.app !== 'budzet-pwa' || !Array.isArray(data.entries)) return toast('Nieprawidłowy plik kopii zapasowej');
   if (!confirm(`Zastąpić wszystkie obecne dane kopią z ${data.exportedAt ? new Date(data.exportedAt).toLocaleString('pl-PL') : 'pliku'}?\n(${data.entries.length} wpisów, ${data.debts?.length || 0} długów)`)) return;
-  const apiKey = S.settings.apiKey;
+  const now = Date.now();
+  const stamp = (arr) => arr.map((r) => ({ ...r, updatedAt: now })); // import jest nadrzędny wobec synchronizacji
+  // kopie z wersji 1.0.0 miały przychody z korków — to zwroty, więc je pomijamy
+  const entries = stamp(data.entries.filter((e) => !(e.type === 'income' && e.debtId)));
+  const debts = stamp((data.debts || []).map((d) => ({ ...d, payments: (d.payments || []).map(({ entryId, ...p }) => p) })));
+  const categories = stamp(data.categories?.length ? data.categories : DEFAULT_CATEGORIES);
+  const subs = stamp(data.subscriptions || []);
+  const tombs = { ...(S.settings.tombs || {}) };
+  const incoming = { entries, categories, subscriptions: subs, debts };
+  const current = { entries: S.entries, categories: S.categories, subscriptions: S.subs, debts: S.debts };
+  for (const [store, arr] of Object.entries(current)) {
+    const ids = new Set(incoming[store].map((r) => r.id));
+    arr.filter((r) => !r.demo && !ids.has(r.id)).forEach((r) => (tombs[`${store}:${r.id}`] = now));
+  }
+  const kept = Object.fromEntries(KEEP_LOCAL.filter((k) => S.settings[k] !== undefined).map((k) => [k, S.settings[k]]));
   for (const s of db.STORES) await db.clear(s);
-  await db.putMany('entries', data.entries);
-  await db.putMany('categories', data.categories?.length ? data.categories : DEFAULT_CATEGORIES);
-  await db.putMany('subscriptions', data.subscriptions || []);
-  await db.putMany('debts', data.debts || []);
+  await db.putMany('entries', entries);
+  await db.putMany('categories', categories);
+  await db.putMany('subscriptions', subs);
+  await db.putMany('debts', debts);
   await db.putMany('receipts', (data.receipts || []).map((r) => ({ id: r.id, date: r.date, createdAt: r.createdAt, blob: dataURLToBlob(r.dataUrl) })));
-  await db.putMany('settings', Object.entries({ ...(data.settings || {}), initialized: true, ...(apiKey ? { apiKey } : {}) }).map(([key, value]) => ({ key, value })));
+  const fileSettings = Object.fromEntries(Object.entries(data.settings || {}).filter(([k]) => !KEEP_LOCAL.includes(k)));
+  await db.putMany('settings', Object.entries({ ...fileSettings, initialized: true, ...kept, tombs }).map(([key, value]) => ({ key, value })));
   await load();
   await runSubscriptions();
   render();
+  scheduleSync(500);
   toast('Zaimportowano kopię zapasową');
 }
 
@@ -1107,6 +1277,26 @@ const ACT = {
   vAdd: () => { V.items.push({ name: '', price: 0, categoryId: V.singleCat }); renderVItems(); $$('.v-item input[name=iname]').pop()?.focus(); },
   vDel: (el) => { V.items.splice(+el.dataset.i, 1); renderVItems(); },
   toggleKey: () => { const i = $('#api-key'); i.type = i.type === 'password' ? 'text' : 'password'; },
+  toggleGh: () => { const i = $('#gh-token'); i.type = i.type === 'password' ? 'text' : 'password'; },
+  saveSync: async () => {
+    const repo = $('#gh-repo').value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '').replace(/\/$/, '');
+    const token = $('#gh-token').value.trim();
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast('Wpisz repozytorium w formie login/nazwa');
+    if (!token) return toast('Wklej token GitHub');
+    await setSetting('ghRepo', repo);
+    await setSetting('ghToken', token);
+    await setSetting('syncError', '');
+    render();
+    await syncNow({ manual: true });
+    if (UI.tab === 'settings') render();
+  },
+  syncNow: async () => { await syncNow({ manual: true }); },
+  stopSync: async () => {
+    if (!confirm('Wyłączyć synchronizację na tym urządzeniu? Dane lokalne zostaną, a repozytorium na GitHubie nie zostanie usunięte.')) return;
+    for (const k of ['ghToken', 'ghRepo', 'lastSync', 'syncError']) await db.del('settings', k), delete S.settings[k];
+    clearTimeout(syncTimer); setSyncBadge('');
+    render(); toast('Wyłączono synchronizację');
+  },
   removeKey: async () => { if (confirm('Usunąć klucz API z tego urządzenia?')) { await setSetting('apiKey', ''); render(); toast('Usunięto klucz'); } },
   editCat: (el) => openCatForm(S.categories.find((c) => c.id === el.dataset.id) || null),
   moveCat: async (el) => {
@@ -1126,12 +1316,16 @@ const ACT = {
   },
   wipeAll: async () => {
     if (!confirm('Na pewno usunąć WSZYSTKIE dane (wydatki, długi, subskrypcje, paragony)? Tego nie da się cofnąć.')) return;
-    const apiKey = S.settings.apiKey;
+    const now = Date.now();
+    const tombs = { ...(S.settings.tombs || {}) };
+    for (const [store, arr] of Object.entries({ entries: S.entries, subscriptions: S.subs, debts: S.debts })) {
+      arr.filter((r) => !r.demo).forEach((r) => (tombs[`${store}:${r.id}`] = now));
+    }
+    const kept = Object.fromEntries(KEEP_LOCAL.filter((k) => S.settings[k] !== undefined).map((k) => [k, S.settings[k]]));
     for (const s of db.STORES) await db.clear(s);
     await db.putMany('categories', DEFAULT_CATEGORIES);
-    await db.put('settings', { key: 'initialized', value: true });
-    if (apiKey) await db.put('settings', { key: 'apiKey', value: apiKey });
-    await load(); render(); toast('Usunięto wszystkie dane');
+    await db.putMany('settings', Object.entries({ ...kept, tombs, initialized: true }).map(([key, value]) => ({ key, value })));
+    await load(); render(); scheduleSync(500); toast('Usunięto wszystkie dane');
   },
 };
 
@@ -1168,6 +1362,6 @@ document.addEventListener('change', async (e) => {
 });
 
 // dla testów
-window.__budzet = { S, UI, render, runSubscriptions };
+window.__budzet = { S, UI, render, runSubscriptions, syncNow };
 
 init();
