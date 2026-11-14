@@ -110,6 +110,15 @@ async function init() {
   }
 }
 
+// ---------------------------------------------------------------- motyw
+const getTheme = () => { try { return localStorage.getItem('theme') || 'auto'; } catch { return 'auto'; } };
+function setTheme(t) {
+  try { t === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', t); } catch {}
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  $$('meta[name=theme-color]').forEach((m) => m.setAttribute('content', dark ? '#0d1014' : '#f5f6f8'));
+}
+
 // ---------------------------------------------------------------- aktualizacje (service worker)
 function refreshSettings() { if (UI.tab === 'settings' && !$('#sheet-root.open')) render(); }
 
@@ -1208,6 +1217,10 @@ function viewSettings() {
         <button class="btn danger" data-act="wipeAll">Usuń wszystkie dane</button>
       </div>
     </section>
+    <section class="card">
+      <h3>🎨 Motyw</h3>
+      <div class="seg">${[['auto', 'Auto'], ['light', 'Jasny'], ['dark', 'Ciemny']].map(([k, l]) => `<button class="${getTheme() === k ? 'on' : ''}" data-act="theme" data-theme="${k}">${l}</button>`).join('')}</div>
+    </section>
     <section class="card about">
       <p><b>Budżet</b> v${esc(APP_VERSION)} · działa offline · ${S.entries.length} wpisów</p>
       ${UI.update.ready
@@ -1440,6 +1453,7 @@ const ACT = {
     if (!confirm('Usunąć wszystkie przykładowe dane demo? Twoje własne wpisy zostaną.')) return;
     await clearDemo(); render(); toast('Wyczyszczono dane demo');
   },
+  theme: (el) => { setTheme(el.dataset.theme); render(); },
   checkUpdate: () => checkUpdate(),
   applyUpdate: () => applyUpdate(),
   wipeAll: async () => {

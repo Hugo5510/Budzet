@@ -1,6 +1,6 @@
 // Service worker: cache całej aplikacji (działa offline).
 // Po każdej zmianie plików podbij numer wersji, żeby telefony pobrały nową wersję.
-const VERSION = 'budzet-v1.2.5';
+const VERSION = 'budzet-v1.2.7';
 const ASSETS = [
   './',
   './index.html',
