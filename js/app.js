@@ -113,34 +113,20 @@ async function init() {
 // ---------------------------------------------------------------- aktualizacje (service worker)
 function refreshSettings() { if (UI.tab === 'settings' && !$('#sheet-root.open')) render(); }
 
-function watchWorker(reg) {
-  const mark = (w) => {
-    if (w && navigator.serviceWorker.controller) {
-      if (!UI.update.ready) toast('Dostępna nowa wersja — zaktualizuj w Ustawieniach');
-      UI.update.ready = true; refreshSettings();
-    }
-  };
-  mark(reg.waiting);
-  reg.addEventListener('updatefound', () => {
-    const w = reg.installing;
-    w?.addEventListener('statechange', () => { if (w.state === 'installed') mark(w); });
-  });
-}
-
 async function initUpdates() {
   const sw = navigator.serviceWorker;
+  const hadController = !!sw.controller; // przy pierwszej instalacji nie ma co przeładowywać
   sw.addEventListener('message', (ev) => {
     if (ev.data?.type === 'version' && ev.data.version) { APP_VERSION = ev.data.version; refreshSettings(); }
   });
-  let reloading = false;
   sw.addEventListener('controllerchange', () => {
-    if (reloading || !UI.update.applying) return; // nie przeładowuj przy pierwszej instalacji
-    reloading = true;
-    location.reload();
+    if (!hadController || UI.update.ready) return;
+    UI.update.ready = true;
+    toast('Zainstalowano nową wersję — uruchom ponownie w Ustawieniach');
+    refreshSettings();
   });
   try {
     const reg = await sw.register('./sw.js', { updateViaCache: 'none' });
-    watchWorker(reg);
     const ready = await sw.ready;
     ready.active?.postMessage({ type: 'GET_VERSION' });
     const recheck = () => reg.update().catch(() => {});
@@ -158,26 +144,21 @@ async function checkUpdate() {
   UI.update.checking = true; render();
   try {
     await reg.update();
-    if (!reg.waiting && reg.installing) {
+    if (!UI.update.ready && (reg.installing || reg.waiting)) {
+      // nowa wersja aktywuje się sama; czekamy chwilę na przejęcie kontroli
       await new Promise((res) => {
-        const w = reg.installing;
-        w.addEventListener('statechange', () => { if (w.state === 'installed' || w.state === 'redundant') res(); });
+        navigator.serviceWorker.addEventListener('controllerchange', res, { once: true });
+        setTimeout(res, 8000);
       });
     }
-    if (reg.waiting && navigator.serviceWorker.controller) { UI.update.ready = true; toast('Dostępna nowa wersja'); }
-    else toast('Masz najnowszą wersję ✅');
+    toast(UI.update.ready ? 'Zainstalowano nową wersję — uruchom ponownie' : 'Masz najnowszą wersję ✅');
   } catch (e) {
     toast(navigator.onLine ? 'Nie udało się sprawdzić aktualizacji' : 'Brak połączenia z internetem');
   }
   UI.update.checking = false; render();
 }
 
-async function applyUpdate() {
-  const reg = await navigator.serviceWorker?.getRegistration();
-  if (!reg?.waiting) { UI.update.ready = false; return render(); }
-  UI.update.applying = true;
-  reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-}
+const applyUpdate = () => location.reload();
 
 // v1.0.1: spłaty korków to zwroty, nie przychody — usuń wcześniej utworzone wpisy przychodów
 async function migrateTutoringIncome() {
@@ -1211,7 +1192,7 @@ function viewSettings() {
     <section class="card about">
       <p><b>Budżet</b> v${esc(APP_VERSION)} · działa offline · ${S.entries.length} wpisów</p>
       ${UI.update.ready
-        ? '<button class="btn primary wide" data-act="applyUpdate">⬇️ Dostępna nowa wersja — zaktualizuj</button>'
+        ? '<button class="btn primary wide" data-act="applyUpdate">🔄 Nowa wersja gotowa — uruchom ponownie</button>'
         : `<button class="btn ghost wide" data-act="checkUpdate" ${UI.update.checking ? 'disabled' : ''}>${UI.update.checking ? 'Sprawdzam…' : '🔄 Sprawdź aktualizacje'}</button>`}
     </section>`;
 }
