@@ -1,6 +1,6 @@
 // Service worker: cache całej aplikacji (działa offline).
 // Po każdej zmianie plików podbij numer wersji, żeby telefony pobrały nową wersję.
-const VERSION = 'budzet-v1.2.3';
+const VERSION = 'budzet-v1.2.4';
 const ASSETS = [
   './',
   './index.html',
@@ -20,7 +20,15 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
+  );
+  // Nowa wersja czeka, aż użytkownik zaktualizuje w Ustawieniach (komunikat SKIP_WAITING).
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (e.data?.type === 'GET_VERSION') e.source?.postMessage({ type: 'version', version: VERSION.replace(/^budzet-v/, '') });
 });
 
 self.addEventListener('activate', (e) => {
