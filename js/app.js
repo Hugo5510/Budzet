@@ -541,6 +541,7 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
   const subs = cat(e.categoryId).subs || [];
   const linked = !!e.debtId;
   const debt = e.owedDebtId ? S.debts.find((d) => d.id === e.owedDebtId) : null;
+  const owedFull = !debt || debt.amount === e.amount;
   const sheet = openSheet(`
     <form data-form="entry" class="entry-form ${e.type === 'income' ? 'is-income' : ''}" novalidate>
       <input type="hidden" name="id" value="${e.id || ''}">
@@ -558,11 +559,16 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       <div class="owed-box expense-only" ${debt ? '' : 'hidden'}>
         <label>Kto jest winny<input name="owedPerson" list="people" value="${esc(debt?.person || '')}" autocomplete="off" placeholder="np. Kasia"></label>
         <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+        <input type="hidden" name="owedMode" value="${owedFull ? 'full' : 'custom'}">
+        <div class="seg owed-mode">
+          <button type="button" class="${owedFull ? 'on' : ''}" data-act="owedMode" data-mode="full">Cała kwota</button>
+          <button type="button" class="${owedFull ? '' : 'on'}" data-act="owedMode" data-mode="custom">Własna kwota</button>
+        </div>
         <div class="two">
-          <label>Kwota do zwrotu (zł)<input name="owedAmount" inputmode="decimal" value="${debt ? amountToInput(debt.amount) : ''}" placeholder="cała kwota" autocomplete="off"></label>
+          <label class="owed-amount" ${owedFull ? 'hidden' : ''}>Kwota do zwrotu (zł)<input name="owedAmount" inputmode="decimal" value="${debt && !owedFull ? amountToInput(debt.amount) : ''}" autocomplete="off"></label>
           <label>Termin (opcjonalnie)<input type="date" name="owedDue" value="${esc(debt?.due || '')}"></label>
         </div>
-        <p class="hint">Cała kwota wydatku liczy się w statystykach. Zwrot od tej osoby nie jest przychodem.</p>
+        <p class="hint">Cała kwota wydatku liczy się w statystykach, a zwrot od tej osoby pomniejsza wydatki w dniu spłaty.</p>
       </div>
       <details class="more" ${entry ? 'open' : ''}>
         <summary>Data, opis, podkategoria, zdjęcie</summary>
@@ -633,7 +639,7 @@ FORMS.entry = async (f) => {
   let owedPerson = '', owedAmount = 0;
   if (owed) {
     owedPerson = f.owedPerson.value.trim();
-    owedAmount = f.owedAmount.value.trim() ? parseAmount(f.owedAmount.value) : amount;
+    owedAmount = f.owedMode.value === 'full' || !f.owedAmount.value.trim() ? amount : parseAmount(f.owedAmount.value);
     if (!owedPerson) { f.owedPerson.classList.add('err'); f.owedPerson.focus(); return toast('Podaj, kto jest Ci winien'); }
     if (!(owedAmount > 0)) { f.owedAmount.classList.add('err'); return toast('Podaj poprawną kwotę do zwrotu'); }
     if (owedAmount > amount) { f.owedAmount.classList.add('err'); return toast('Kwota do zwrotu nie może być większa niż wydatek'); }
@@ -1499,6 +1505,14 @@ const ACT = {
     box.lastElementChild.querySelector('input').focus();
   },
   removeDebtor: (el) => el.closest('.debtor-row').remove(),
+  owedMode: (el) => {
+    const form = el.closest('form');
+    form.owedMode.value = el.dataset.mode;
+    $$('.owed-mode button', form).forEach((b) => b.classList.toggle('on', b === el));
+    const custom = el.dataset.mode === 'custom';
+    form.querySelector('.owed-amount').hidden = !custom;
+    if (custom) form.owedAmount.focus();
+  },
   checkUpdate: () => checkUpdate(),
   applyUpdate: () => applyUpdate(),
   wipeAll: async () => {
