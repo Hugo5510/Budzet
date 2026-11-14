@@ -1216,6 +1216,27 @@ function viewSettings() {
     </section>`;
 }
 
+const EMOJI_GROUPS = [
+  ['Jedzenie', '🍎🍌🍇🍓🥑🥦🥕🌽🍞🥐🧀🥚🍗🥩🍕🍔🌭🌮🍣🍜🍝🍰🍪🍫🍿☕🍵🥤🍺🍷🍸🛒🥡'],
+  ['Transport', '🚗🚕🚌🚆🚇🚲🛵🏍️✈️🚀⛵🚢⛽🅿️🛞🚦🚖🚁🛴'],
+  ['Dom', '🏠🛋️🛏️🚿🛁🔧🔨🪛💡🔌🧹🧺🧴🪥🧻🪴🔑📦'],
+  ['Zdrowie i uroda', '💊🩺🦷🏥💉🧘🏋️⚽🏀🎾🏊💇💅💄🧖🩹'],
+  ['Rozrywka', '🎬🎮🎧🎵🎤🎸🎨📚🎭🎟️🎲🧩📺🎉🎂🎁🎈🍿🎳'],
+  ['Zakupy i ubrania', '👕👖👗👟👠👜🧥🧣🕶️⌚💍🛍️🧢🎒'],
+  ['Praca i szkoła', '💼💻🖥️📱🖨️📎📝✏️🎓🏫📖🧮📊📈🗂️'],
+  ['Pieniądze', '💰💵💳🏦🪙💸🧾📉🤝🏷️💎'],
+  ['Inne', '🐶🐱🐾🌳🌸☀️❄️🔥⭐❤️👶👪🧸✂️🔔📍🌍🧳🏖️⛺🙏✨❓'],
+];
+const firstEmoji = (str) => {
+  const t = String(str || '').trim();
+  if (!t) return '';
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    for (const x of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(t)) return x.segment;
+  }
+  return [...t][0];
+};
+const splitEmoji = (str) => (Intl.Segmenter ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(str)].map((x) => x.segment) : [...str]);
+
 function openCatForm(c = null) {
   const v = c || { name: '', icon: '🏷️', color: '#0ea5e9', subs: [], hidden: false };
   openSheet(`
@@ -1223,10 +1244,15 @@ function openCatForm(c = null) {
     <form data-form="cat">
       <input type="hidden" name="id" value="${c?.id || ''}">
       <div class="cat-form-top">
-        <label>Ikona<input name="icon" value="${esc(v.icon)}" maxlength="4" class="emoji-input"></label>
+        <label>Ikona<input name="icon" value="${esc(v.icon)}" class="emoji-input" autocomplete="off"></label>
         <label>Kolor<input type="color" name="color" value="${esc(v.color)}"></label>
         <label class="grow">Nazwa<input name="name" required value="${esc(v.name)}"></label>
       </div>
+      <details class="more emoji-picker">
+        <summary>Wybierz ikonę z listy</summary>
+        ${EMOJI_GROUPS.map(([g, list]) => `<div class="emoji-group"><small class="muted">${g}</small><div class="emoji-grid">${splitEmoji(list).map((e) => `<button type="button" class="emoji-btn" data-act="pickIcon">${e}</button>`).join('')}</div></div>`).join('')}
+        <p class="hint">Możesz też wpisać dowolną emotkę w polu „Ikona” (np. z klawiatury emoji telefonu).</p>
+      </details>
       <label>Podkategorie (oddziel przecinkami)<input name="subs" value="${esc((v.subs || []).join(', '))}" placeholder="np. Kino, Gry"></label>
       <label class="check"><input type="checkbox" name="hidden" ${v.hidden ? 'checked' : ''}> Ukryj (nie pokazuj przy dodawaniu; historia zostaje)</label>
       <div class="row-btns">${c ? `<button type="button" class="btn ghost" data-act="moveCat" data-id="${c.id}" data-d="-1">↑</button><button type="button" class="btn ghost" data-act="moveCat" data-id="${c.id}" data-d="1">↓</button>` : ''}<button class="btn primary big">Zapisz</button></div>
@@ -1239,7 +1265,7 @@ FORMS.cat = async (f) => {
   const old = S.categories.find((c) => c.id === f.id.value);
   const c = {
     ...(old || { id: 'c_' + uid(), order: Math.max(0, ...S.categories.map((x) => x.order)) + 1 }),
-    name, icon: f.icon.value.trim() || '🏷️', color: f.color.value,
+    name, icon: firstEmoji(f.icon.value) || '🏷️', color: f.color.value,
     subs: f.subs.value.split(',').map((s) => s.trim()).filter(Boolean), hidden: f.hidden.checked,
   };
   await saveCat(c);
@@ -1440,6 +1466,7 @@ const ACT = {
     if (!confirm('Usunąć wszystkie przykładowe dane demo? Twoje własne wpisy zostaną.')) return;
     await clearDemo(); render(); toast('Wyczyszczono dane demo');
   },
+  pickIcon: (el) => { const f = el.closest('form'); f.icon.value = el.textContent; },
   checkUpdate: () => checkUpdate(),
   applyUpdate: () => applyUpdate(),
   wipeAll: async () => {
