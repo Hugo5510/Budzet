@@ -193,9 +193,19 @@ async function runSubscriptions() {
       // stałe id: dwa urządzenia nie zdublują tego samego pobrania
       const id = `s_${sub.id}_${date}`;
       if (S.entries.some((e) => e.id === id) || (S.settings.tombs || {})[`entries:${id}`]) continue;
+      const owedDebtIds = [];
+      for (const [i, dr] of (sub.debtors || []).entries()) {
+        const debt = {
+          id: `sd_${id}_${i}`, dir: 'in', person: dr.person, amount: dr.amount, date,
+          desc: sub.name, due: '', payments: [], kind: 'expense', expenseId: id, createdAt: Date.now(), demo: !!sub.demo,
+        };
+        await saveDebt(debt);
+        owedDebtIds.push(debt.id);
+      }
       await saveEntry({
         id, type: 'expense', amount: sub.amount, categoryId: sub.categoryId, date,
         desc: sub.name, sub: '', subscriptionId: sub.id, createdAt: Date.now(), demo: !!sub.demo,
+        ...(owedDebtIds.length ? { owedDebtIds } : {}),
       });
       added++;
     }
@@ -424,7 +434,7 @@ const catIcon = (c) => `<span class="ico" style="--c:${esc(c.color)}">${esc(c.ic
 function entryRow(e) {
   const inc = e.type === 'income';
   const c = inc ? INCOME : cat(e.categoryId);
-  const meta = [inc ? 'Przychód' : c.name, e.sub, e.receiptId ? '🧾' : '', e.subscriptionId ? '🔁' : '', e.debtId ? '🎓' : '', e.owedDebtId ? '↩️ do zwrotu' : '']
+  const meta = [inc ? 'Przychód' : c.name, e.sub, e.receiptId ? '🧾' : '', e.subscriptionId ? '🔁' : '', e.debtId ? '🎓' : '', e.owedDebtId || e.owedDebtIds?.length ? '↩️ do zwrotu' : '']
     .filter(Boolean).join(' · ');
   return `<button class="row" data-act="editEntry" data-id="${e.id}">
     ${catIcon(c)}
@@ -699,7 +709,7 @@ function openSubs() {
   const act = S.subs.filter((s) => s.active), inactive = S.subs.filter((s) => !s.active);
   const total = act.reduce((a, s) => a + subMonthly(s), 0);
   const row = (s) => `<button class="row" data-act="editSub" data-id="${s.id}">${catIcon(cat(s.categoryId))}
-    <span class="row-main"><span class="row-title">${esc(s.name)}</span><span class="row-sub">${s.cycle === 'year' ? `co rok, ${s.day} ${['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'][(s.month || 1) - 1]}` : `co miesiąc, ${s.day}. dnia`}${s.active ? '' : ' · wstrzymana'}</span></span>
+    <span class="row-main"><span class="row-title">${esc(s.name)}</span><span class="row-sub">${s.cycle === 'year' ? `co rok, ${s.day} ${['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'][(s.month || 1) - 1]}` : `co miesiąc, ${s.day}. dnia`}${s.debtors?.length ? ` · ↩️ ${s.debtors.length} dłużn.` : ''}${s.active ? '' : ' · wstrzymana'}</span></span>
     <span class="row-amt">${fmt(s.amount)}</span></button>`;
   openSheet(`
     <h2>🔁 Subskrypcje</h2>
@@ -708,6 +718,11 @@ function openSubs() {
     ${inactive.length ? `<h3>Wstrzymane</h3><div class="card list-card">${inactive.map(row).join('')}</div>` : ''}
     <button class="btn primary wide" data-act="editSub">+ Dodaj subskrypcję</button>`);
 }
+
+const debtorRow = (d = {}) => `<div class="debtor-row">
+  <input name="dPerson" list="people" value="${esc(d.person || '')}" placeholder="Kto" autocomplete="off">
+  <input name="dAmount" inputmode="decimal" value="${d.amount ? amountToInput(d.amount) : ''}" placeholder="Kwota zł" autocomplete="off">
+  <button type="button" class="icon-btn" data-act="removeDebtor" aria-label="Usuń dłużnika">✕</button></div>`;
 
 function openSubForm(s = null) {
   const v = s || { name: '', amount: null, categoryId: 'c_subskrypcje', cycle: 'month', day: parseISO(today()).getDate(), month: parseISO(today()).getMonth() + 1, start: today(), active: true };
@@ -726,6 +741,11 @@ function openSubForm(s = null) {
       </div>
       <label class="year-only" ${v.cycle === 'year' ? '' : 'hidden'}>Miesiąc pobrania<select name="month">${MON_NOM.map((m, i) => `<option value="${i + 1}" ${i + 1 === v.month ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <label>Od daty<input type="date" name="start" value="${v.start}"></label>
+      <h3>↩️ Kto mi za to oddaje</h3>
+      <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <div class="debtors">${(v.debtors || []).map(debtorRow).join('')}</div>
+      <button type="button" class="btn ghost wide" data-act="addDebtor">+ Dodaj dłużnika</button>
+      <p class="hint">Przy każdym pobraniu subskrypcji powstanie dług „Mi są winni” dla każdej z osób (kwota za jeden cykl). Wydatek liczy się w całości.</p>
       <p class="hint">Wydatek doda się automatycznie w dniu pobrania (przy otwarciu aplikacji). Zaległe terminy od daty startu zostaną uzupełnione.</p>
       <label class="check"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Aktywna</label>
       <div class="row-btns">
@@ -741,11 +761,21 @@ FORMS.sub = async (f) => {
   const day = Math.min(31, Math.max(1, parseInt(f.day.value, 10) || 1));
   if (!f.name.value.trim() || !(amount > 0)) return toast('Podaj nazwę i kwotę');
   const old = S.subs.find((x) => x.id === f.id.value);
+  const debtors = [];
+  for (const row of $$('.debtor-row', f)) {
+    const person = row.querySelector('[name=dPerson]').value.trim();
+    const aRaw = row.querySelector('[name=dAmount]').value.trim();
+    if (!person && !aRaw) continue;
+    const a = parseAmount(aRaw);
+    if (!person || !(a > 0)) return toast('Dłużnik: podaj osobę i kwotę');
+    debtors.push({ person, amount: a });
+  }
+  if (debtors.reduce((t, d) => t + d.amount, 0) > amount) return toast('Suma zwrotów nie może być większa niż kwota subskrypcji');
   const start = isValidISO(f.start.value) ? f.start.value : today();
   const s = {
     ...(old || { id: uid(), lastRun: '' }),
     name: f.name.value.trim(), amount, categoryId: f.categoryId.value, cycle: f.cycle.value,
-    day, month: parseInt(f.month.value, 10) || 1, start, active: f.active.checked,
+    day, month: parseInt(f.month.value, 10) || 1, start, active: f.active.checked, debtors,
   };
   if (old && start < old.start) s.lastRun = ''; // przesunięto start wstecz
   if (old && !old.active && s.active) s.lastRun = today(); // wznowienie: bez dopisywania przerwy
@@ -1369,8 +1399,9 @@ const ACT = {
     const e = S.entries.find((x) => x.id === el.dataset.id);
     if (!e) return;
     const od = e.owedDebtId ? S.debts.find((d) => d.id === e.owedDebtId) : null;
-    if (!confirm(e.debtId ? 'Usunąć ten przychód? Usunie to też powiązaną spłatę długu.' : `Usunąć wpis ${fmt(e.amount)}?${od ? `\nUsunie też powiązany dług (${od.person}, ${fmt(od.amount)}).` : ''}`)) return;
+    if (!confirm(e.debtId ? 'Usunąć ten przychód? Usunie to też powiązaną spłatę długu.' : `Usunąć wpis ${fmt(e.amount)}?${od ? `\nUsunie też powiązany dług (${od.person}, ${fmt(od.amount)}).` : ''}${e.owedDebtIds?.length ? `\nUsunie też powiązane długi (${e.owedDebtIds.length}).` : ''}`)) return;
     if (od) await removeFrom('debts', S.debts, od.id);
+    for (const id of e.owedDebtIds || []) if (S.debts.some((d) => d.id === id)) await removeFrom('debts', S.debts, id);
     if (e.debtId) {
       const d = S.debts.find((x) => x.id === e.debtId);
       if (d) { d.payments = d.payments.filter((p) => p.id !== e.paymentId); await saveDebt(d); }
@@ -1462,6 +1493,12 @@ const ACT = {
   },
   pickIcon: (el) => { const f = el.closest('form'); f.icon.value = el.textContent; },
   theme: (el) => { setTheme(el.dataset.theme); render(); },
+  addDebtor: (el) => {
+    const box = el.closest('form').querySelector('.debtors');
+    box.insertAdjacentHTML('beforeend', debtorRow());
+    box.lastElementChild.querySelector('input').focus();
+  },
+  removeDebtor: (el) => el.closest('.debtor-row').remove(),
   checkUpdate: () => checkUpdate(),
   applyUpdate: () => applyUpdate(),
   wipeAll: async () => {

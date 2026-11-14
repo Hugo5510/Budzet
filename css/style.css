@@ -353,3 +353,4 @@ details.more[open] summary::before { content: '− '; }
 .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; margin-top: 4px; }
 .emoji-btn { border: 0; background: var(--card2); border-radius: 10px; min-height: 44px; font-size: 1.4rem; cursor: pointer; }
 .emoji-btn:active { background: var(--line); }
+.debtor-row { display: grid; grid-template-columns: 1fr 96px 46px; gap: 6px; margin-bottom: 6px; }

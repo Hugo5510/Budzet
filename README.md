@@ -51,6 +51,10 @@ Dane są tylko w przeglądarce telefonu. Wyczyszczenie danych przeglądarki albo
 
 W formularzu wydatku zaznacz **↩️ Ktoś mi to odda**, wpisz osobę i (opcjonalnie) kwotę do zwrotu oraz termin. Cały wydatek liczy się w statystykach, a w zakładce Długi pojawia się wpis „Mi są winni”. Wydatek liczy się w całości od razu, a każda spłata długu pomniejsza wydatki (w kategorii oryginalnego wydatku, w okresie spłaty) i podnosi bilans o oddaną kwotę. Spłata korków nadal nie jest przychodem. Usunięcie wydatku usuwa też powiązany dług (aplikacja pyta o potwierdzenie).
 
+## Subskrypcje z dłużnikami
+
+W formularzu subskrypcji możesz dodać kilka osób, które Ci za nią oddają (osoba + kwota za jeden cykl). Przy każdym pobraniu powstaje wydatek i dług „Mi są winni” dla każdej z nich. Spłata działa tak samo jak przy zwykłym długu z wydatku. Zmiana listy dłużników dotyczy kolejnych pobrań, a już utworzone długi zostają.
+
 ## Synchronizacja telefon ↔ komputer (GitHub)
 
 Dane trafiają do **prywatnego** repozytorium na Twoim koncie GitHub (jeden plik `budzet-dane.json`). Serwera pośredniego nie ma. Zdjęcia paragonów zostają na urządzeniu, a odczytane z nich pozycje się synchronizują. Dane demo, klucz API i token nie są wysyłane.
