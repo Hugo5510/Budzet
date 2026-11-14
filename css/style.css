@@ -73,6 +73,11 @@ button, input, select { font: inherit; color: inherit; }
   -webkit-backdrop-filter: saturate(180%) blur(14px); backdrop-filter: saturate(180%) blur(14px);
 }
 .topbar h1 { font-size: 1.45rem; letter-spacing: -.02em; }
+.badge.sync { background: var(--card2); color: var(--muted); }
+.badge.sync.err { background: var(--neg); color: #fff; }
+.steps { padding-left: 20px; margin: 6px 0; font-size: .9rem; }
+.steps li { margin-bottom: 6px; }
+code { background: var(--card2); padding: 1px 5px; border-radius: 6px; font-size: .85em; }
 .badge { background: var(--neg); color: #fff; font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
 
 /* ---------- tab bar */
@@ -160,7 +165,7 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- forms */
 label { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
 label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--text); font-size: .95rem; font-weight: 500; min-height: 44px; }
-label.check input { width: 22px; height: 22px; accent-color: var(--accent); }
+input[type=checkbox] { -webkit-appearance: checkbox; appearance: auto; width: 24px; height: 24px; min-height: 0; padding: 0; flex: none; accent-color: var(--accent); }
 input, select {
   width: 100%; min-height: 46px; padding: 10px 12px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--card2); color: var(--text); font-size: 16px; font-weight: 500;
@@ -321,3 +326,4 @@ details.more[open] summary::before { content: '− '; }
   .cat-grid { grid-template-columns: repeat(6, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+[hidden] { display: none !important; }
