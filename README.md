@@ -49,7 +49,7 @@ Dane są tylko w przeglądarce telefonu. Wyczyszczenie danych przeglądarki albo
 
 ## Dług z wydatku („ktoś mi to odda”)
 
-W formularzu wydatku zaznacz **↩️ Ktoś mi to odda**, wpisz osobę i (opcjonalnie) kwotę do zwrotu oraz termin. Cały wydatek liczy się w statystykach, a w zakładce Długi pojawia się wpis „Mi są winni”. Zwrot, tak jak spłata korków, nie jest przychodem. Usunięcie wydatku usuwa też powiązany dług (aplikacja pyta o potwierdzenie).
+W formularzu wydatku zaznacz **↩️ Ktoś mi to odda**, wpisz osobę i (opcjonalnie) kwotę do zwrotu oraz termin. Cały wydatek liczy się w statystykach, a w zakładce Długi pojawia się wpis „Mi są winni”. Wydatek liczy się w całości od razu, a każda spłata długu pomniejsza wydatki (w kategorii oryginalnego wydatku, w okresie spłaty) i podnosi bilans o oddaną kwotę. Spłata korków nadal nie jest przychodem. Usunięcie wydatku usuwa też powiązany dług (aplikacja pyta o potwierdzenie).
 
 ## Synchronizacja telefon ↔ komputer (GitHub)
 

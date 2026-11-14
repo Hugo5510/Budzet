@@ -57,6 +57,15 @@ const INCOME = { id: '', name: 'Przychód', icon: '💰', color: '#16a34a', subs
 const cat = (id) => S.categories.find((c) => c.id === id) || UNKNOWN;
 const sumAmt = (arr) => arr.reduce((s, e) => s + e.amount, 0);
 const entriesIn = (p, type) => S.entries.filter((e) => e.type === type && e.date >= p.start && e.date <= p.end);
+// Zwroty od osób za wydatki ("ktoś mi to odda"): w dniu spłaty pomniejszają wydatki
+// w kategorii oryginalnego wydatku (i podnoszą bilans)
+const refundList = (p) => S.debts
+  .filter((d) => d.kind === 'expense' && d.dir === 'in')
+  .flatMap((d) => {
+    const categoryId = S.entries.find((e) => e.id === d.expenseId)?.categoryId || '';
+    return d.payments.filter((x) => x.date >= p.start && x.date <= p.end).map((x) => ({ categoryId, amount: x.amount, date: x.date }));
+  });
+const refundsIn = (p) => sumAmt(refundList(p));
 const paid = (d) => d.payments.reduce((s, p) => s + p.amount, 0);
 const balance = (d) => d.amount - paid(d);
 const subMonthly = (s) => (s.cycle === 'year' ? Math.round(s.amount / 12) : s.amount);
@@ -382,7 +391,7 @@ function groupedList(list, ref = today()) {
 // ---------------------------------------------------------------- Wydatki
 function viewExpenses() {
   const m = getPeriod('month', 0);
-  const out = sumAmt(entriesIn(m, 'expense')), inc = sumAmt(entriesIn(m, 'income'));
+  const out = sumAmt(entriesIn(m, 'expense')) - refundsIn(m), inc = sumAmt(entriesIn(m, 'income'));
   const bal = inc - out;
   const subsSum = S.subs.filter((s) => s.active).reduce((a, s) => a + subMonthly(s), 0);
   const f = UI.f;
@@ -695,16 +704,18 @@ function viewStats() {
   const { kind, offset } = UI.stats;
   const p = getPeriod(kind, offset), pp = getPeriod(kind, offset - 1);
   const ex = entriesIn(p, 'expense');
-  const total = sumAmt(ex), prevTotal = sumAmt(entriesIn(pp, 'expense'));
+  const rl = refundList(p), refunds = sumAmt(rl);
+  const total = sumAmt(ex) - refunds, prevTotal = sumAmt(entriesIn(pp, 'expense')) - refundsIn(pp);
   const inc = sumAmt(entriesIn(p, 'income'));
   const map = new Map();
   ex.forEach((e) => map.set(e.categoryId, (map.get(e.categoryId) || 0) + e.amount));
-  const rows = [...map].map(([id, v]) => ({ id, c: cat(id), v })).sort((a, b) => b.v - a.v);
+  rl.forEach((r) => map.set(r.categoryId, (map.get(r.categoryId) || 0) - r.amount));
+  const rows = [...map].map(([id, v]) => ({ id, c: cat(id), v })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
   const ch = pctChange(total, prevTotal);
   const cmp = ch === null
     ? `<span class="muted">${total ? 'brak wydatków w poprzednim okresie' : ''}</span>`
     : `<span class="${ch > 0 ? 'neg' : 'pos'}">${ch > 0 ? '▲ +' : ch < 0 ? '▼ ' : ''}${ch.toFixed(1).replace('.', ',')}%</span> <span class="muted">vs poprzedni okres (${fmt(prevTotal)})</span>`;
-  const vals = p.buckets.map((b) => sumAmt(ex.filter((e) => e.date >= b.start && e.date <= b.end)));
+  const vals = p.buckets.map((b) => sumAmt(ex.filter((e) => e.date >= b.start && e.date <= b.end)) - sumAmt(rl.filter((r) => r.date >= b.start && r.date <= b.end)));
   const labels = p.buckets.map((b, i) => (kind !== 'month' || i === 0 || (i + 1) % 5 === 0 ? b.label : ''));
   const t = today();
   const hi = p.buckets.findIndex((b) => t >= b.start && t <= b.end);
@@ -720,6 +731,7 @@ function viewStats() {
       <small class="muted">Suma wydatków</small>
       <div class="total">${fmt(total)}</div>
       <div class="cmp">${cmp}</div>
+      ${refunds ? `<div class="hint">Uwzględnia zwroty od osób: −${fmt(refunds)}</div>` : ''}
       <div class="mini-row"><span>Przychody <b class="pos">${fmt(inc)}</b></span><span>Bilans <b class="${inc - total >= 0 ? 'pos' : 'neg'}">${fmt(inc - total, { sign: true })}</b></span></div>
     </section>
     <section class="card">
@@ -742,8 +754,9 @@ function openCatDetail(catId) {
   const p = getPeriod(UI.stats.kind, UI.stats.offset);
   const list = entriesIn(p, 'expense').filter((e) => (e.categoryId || '') === (catId || '')).sort(byDateDesc);
   const c = cat(catId);
+  const ref = sumAmt(refundList(p).filter((r) => (r.categoryId || '') === (catId || '')));
   openSheet(`<h2>${esc(c.icon)} ${esc(c.name)}</h2>
-    <p class="muted">${esc(p.label)} · ${list.length} wpis(ów) · <b>${fmt(sumAmt(list))}</b></p>
+    <p class="muted">${esc(p.label)} · ${list.length} wpis(ów) · <b>${fmt(sumAmt(list) - ref)}</b>${ref ? ` (po zwrotach −${fmt(ref)})` : ''}</p>
     ${list.length ? groupedList(list) : '<div class="empty">Brak wydatków.</div>'}`, { full: true });
 }
 
