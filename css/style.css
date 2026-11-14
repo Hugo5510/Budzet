@@ -348,3 +348,8 @@ details.more[open] summary::before { content: '− '; }
 .owed-box { background: var(--card2); border-radius: 12px; padding: 10px 10px 2px; margin-bottom: 12px; }
 .owed-box input { background: var(--card); }
 .owed-box .hint { margin: 0 0 8px; }
+.emoji-input { width: 72px; }
+.emoji-group { margin-bottom: 10px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; margin-top: 4px; }
+.emoji-btn { border: 0; background: var(--card2); border-radius: 10px; min-height: 44px; font-size: 1.4rem; cursor: pointer; }
+.emoji-btn:active { background: var(--line); }
