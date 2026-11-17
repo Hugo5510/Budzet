@@ -530,3 +530,11 @@ details.more[open] summary::after { content: '\2212'; }
 .remind h2 { margin: 14px 0 8px; padding: 0 !important; }
 .remind p { margin: 0 6px 20px; line-height: 1.45; }
 .remind-ic { display: inline-grid; place-items: center; width: 60px; height: 60px; border-radius: 18px; background: var(--fill); font-size: 1.6rem; animation: tab-pop .6s var(--ease) .15s both; }
+
+/* zwijana historia na ekranie Wydatki */
+.history-tile { width: 100%; display: flex; align-items: center; gap: 12px; border: 0; text-align: left; cursor: pointer; margin-top: 10px; color: var(--text); transition: transform .2s var(--ease); }
+.history-tile:active { transform: scale(.985); }
+.history-tile .chev { transition: transform .3s var(--ease); }
+.history-tile.open .chev { transform: rotate(90deg); }
+.history { animation: hist-in .4s var(--ease); }
+@keyframes hist-in { from { opacity: 0; transform: translateY(-6px); } }
