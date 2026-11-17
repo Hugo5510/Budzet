@@ -109,6 +109,7 @@ async function init() {
   }
   render();
   updateOnline();
+  setTimeout(maybeRemindBackup, 700);
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;
     if (await runSubscriptions()) render();
@@ -178,6 +179,29 @@ async function checkUpdate() {
 }
 
 const applyUpdate = () => location.reload();
+
+// ---------------------------------------------------------------- przypomnienie o kopii
+// Raz w miesiącu przy uruchomieniu: jeśli od ostatniej kopii minęło 30 dni (i od ostatniego przypomnienia też).
+const MONTH_MS = 30 * 24 * 3600 * 1000;
+async function maybeRemindBackup() {
+  const now = Date.now();
+  const own = S.entries.some((e) => !e.demo) || S.debts.some((d) => !d.demo);
+  if (!own || sheetOpen) return;
+  if (S.settings.lastBackup && now - S.settings.lastBackup < MONTH_MS) return;
+  if (S.settings.backupRemind && now - S.settings.backupRemind < MONTH_MS) return;
+  await setSetting('backupRemind', now);
+  const last = S.settings.lastBackup;
+  openSheet(`
+    <div class="remind">
+      <span class="remind-ic">${ic('download-simple')}</span>
+      <h2>Czas na kopię zapasową</h2>
+      <p class="muted">${last ? `Ostatnia kopia: ${esc(fmtDate(new Date(last).toISOString().slice(0, 10), { year: true }))}.` : 'Nie masz jeszcze żadnej kopii.'} Dane są tylko na tym urządzeniu, więc warto raz w miesiącu zapisać plik z kopią.</p>
+      <div class="btn-col">
+        <button class="btn primary big" data-act="backupNow">Zrób kopię teraz</button>
+        <button class="btn ghost" data-act="closeSheet">Przypomnij za miesiąc</button>
+      </div>
+    </div>`);
+}
 
 // v1.0.1: spłaty korków to zwroty, nie przychody — usuń wcześniej utworzone wpisy przychodów
 async function migrateTutoringIncome() {
@@ -253,7 +277,7 @@ async function clearDemo() {
 
 // ---------------------------------------------------------------- Synchronizacja (GitHub)
 // Ustawienia tylko lokalne (nie trafiają do kopii JSON ani na GitHub):
-const EXPORT_SKIP = ['apiKey', 'ghToken', 'ghRepo', 'lastSync', 'syncError', 'tombs'];
+const EXPORT_SKIP = ['apiKey', 'ghToken', 'ghRepo', 'lastSync', 'syncError', 'tombs', 'lastBackup', 'backupRemind'];
 const KEEP_LOCAL = [...EXPORT_SKIP, 'model', 'migTutoring'];
 const syncOn = () => !!(S.settings.ghToken && S.settings.ghRepo);
 let syncing = false, syncQueued = false, syncTimer;
@@ -428,6 +452,7 @@ function closeSheet() {
     history.back();
   }
 }
+document.addEventListener('change', (e) => { if (e.target.type === 'checkbox') e.target.classList.add('pulse'); });
 window.addEventListener('popstate', () => {
   if (ignorePop) { ignorePop = false; return; }
   if (sheetOpen) hideSheet();
@@ -1279,6 +1304,7 @@ function viewSettings() {
       <div class="btn-col">
         <button class="btn ghost" data-act="exportJSON">${ic('download-simple')}Eksportuj kopię (JSON)</button>
         <label class="btn ghost">${ic('upload-simple')}Importuj kopię (JSON)<input type="file" accept="application/json,.json" id="import-file" hidden></label>
+        ${S.settings.lastBackup ? `<p class="hint">Ostatnia kopia: ${esc(fmtDate(new Date(S.settings.lastBackup).toISOString().slice(0, 10), { year: true }))}</p>` : ''}
         <button class="btn ghost" data-act="exportCSV">${ic('file-text')}Eksportuj wydatki (CSV)</button>
       </div>
       <h3>Dane demo</h3>
@@ -1389,6 +1415,7 @@ async function exportJSON() {
     receipts: await Promise.all(receipts.map(async (r) => ({ id: r.id, date: r.date, createdAt: r.createdAt, dataUrl: await blobToDataURL(r.blob) }))),
   };
   await download(`budzet-kopia-${today()}.json`, new Blob([JSON.stringify(data)], { type: 'application/json' }));
+  await setSetting('lastBackup', Date.now());
 }
 
 async function importJSON(file) {
@@ -1544,6 +1571,7 @@ const ACT = {
     render(); toast('Zmieniono kolejność');
   },
   exportJSON: () => exportJSON().catch((e) => toast('Błąd eksportu: ' + e.message)),
+  backupNow: () => exportJSON().then(() => { closeSheet(); toast('Kopia zapisana. Przypomnę za miesiąc'); }).catch((e) => toast('Błąd eksportu: ' + e.message)),
   exportCSV: () => exportCSV(),
   loadDemo: async () => { await loadDemo(); toast('Wczytano dane demo'); },
   clearDemo: async () => {
