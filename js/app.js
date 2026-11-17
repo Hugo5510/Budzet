@@ -8,7 +8,7 @@ import { resizeImage, scanReceipt, DEFAULT_MODEL } from './receipt.js';
 import { donut, bars } from './charts.js';
 import { mergeSnapshots, stable, core, pull, push, SyncError } from './sync.js';
 
-let APP_VERSION = '1.2.4'; // zapasowa; właściwa wersja przychodzi z service workera (sw.js)
+let APP_VERSION = '1.3.0'; // zapasowa; właściwa wersja przychodzi z service workera (sw.js)
 
 // ---------------------------------------------------------------- stan
 const S = { entries: [], categories: [], subs: [], debts: [], settings: {} };
@@ -126,7 +126,7 @@ function setTheme(t) {
   try { t === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', t); } catch {}
   if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
   const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  $$('meta[name=theme-color]').forEach((m) => m.setAttribute('content', dark ? '#0d1014' : '#f5f6f8'));
+  $$('meta[name=theme-color]').forEach((m) => m.setAttribute('content', dark ? '#0b0b0d' : '#f5f5f7'));
 }
 
 // ---------------------------------------------------------------- aktualizacje (service worker)
@@ -141,7 +141,7 @@ async function initUpdates() {
   sw.addEventListener('controllerchange', () => {
     if (!hadController || UI.update.ready) return;
     UI.update.ready = true;
-    toast('Zainstalowano nową wersję — uruchom ponownie w Ustawieniach');
+    toast('Zainstalowano nową wersję. Uruchom ponownie w Ustawieniach');
     refreshSettings();
   });
   try {
@@ -170,7 +170,7 @@ async function checkUpdate() {
         setTimeout(res, 8000);
       });
     }
-    toast(UI.update.ready ? 'Zainstalowano nową wersję — uruchom ponownie' : 'Masz najnowszą wersję ✅');
+    toast(UI.update.ready ? 'Zainstalowano nową wersję. Uruchom ponownie' : 'Masz najnowszą wersję');
   } catch (e) {
     toast(navigator.onLine ? 'Nie udało się sprawdzić aktualizacji' : 'Brak połączenia z internetem');
   }
@@ -310,15 +310,15 @@ function setSyncBadge(state) {
 
 function syncStatusHTML() {
   const st = S.settings;
-  if (st.syncError) return `<div class="banner warn">⚠️ ${esc(st.syncError)}</div>`;
-  if (st.lastSync) return `<div class="banner ok">✓ Ostatnia synchronizacja: ${esc(new Date(st.lastSync).toLocaleString('pl-PL'))}</div>`;
+  if (st.syncError) return `<div class="banner warn">${ic('warning')}${esc(st.syncError)}</div>`;
+  if (st.lastSync) return `<div class="banner ok">${ic('check-circle')}Ostatnia synchronizacja: ${esc(new Date(st.lastSync).toLocaleString('pl-PL'))}</div>`;
   return '<div class="banner">Jeszcze nie synchronizowano.</div>';
 }
 
 async function syncNow({ manual = false } = {}) {
   if (!syncOn()) return;
   if (syncing) { syncQueued = true; return; }
-  if (!navigator.onLine) { if (manual) toast('Brak internetu — zsynchronizuję po powrocie sieci'); return; }
+  if (!navigator.onLine) { if (manual) toast('Brak internetu. Zsynchronizuję po powrocie sieci'); return; }
   syncing = true;
   setSyncBadge('sync');
   const cfg = { token: S.settings.ghToken, repo: S.settings.ghRepo };
@@ -350,7 +350,7 @@ async function syncNow({ manual = false } = {}) {
   const el = $('#sync-status');
   if (el) el.innerHTML = syncStatusHTML();
   if (changed) render();
-  if (manual) toast(error ? error.message : changed ? 'Zsynchronizowano — pobrano zmiany' : 'Zsynchronizowano');
+  if (manual) toast(error ? error.message : changed ? 'Zsynchronizowano, pobrano zmiany' : 'Zsynchronizowano');
   if (syncQueued) { syncQueued = false; scheduleSync(500); }
   return !error;
 }
@@ -358,10 +358,10 @@ async function syncNow({ manual = false } = {}) {
 function syncCard() {
   const on = syncOn();
   return `<section class="card">
-    <h3>☁️ Synchronizacja (GitHub)</h3>
+    <h3>Synchronizacja (GitHub)</h3>
     ${on ? `<div id="sync-status">${syncStatusHTML()}</div>` : '<p class="hint">Te same dane na telefonie i komputerze. Dane trafiają do Twojego <b>prywatnego</b> repozytorium na GitHubie. Zdjęcia paragonów zostają na urządzeniu, a odczytane z nich pozycje się synchronizują. Dane demo nie są synchronizowane.</p>'}
     <label>Repozytorium (login/nazwa)<input id="gh-repo" value="${esc(S.settings.ghRepo || '')}" placeholder="hugo5510/budzet-dane" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-    <label>Token GitHub<div class="inline"><input type="password" id="gh-token" value="${esc(S.settings.ghToken || '')}" placeholder="github_pat_…" autocomplete="off" spellcheck="false"><button class="icon-btn" data-act="toggleGh" aria-label="Pokaż token">👁</button></div></label>
+    <label>Token GitHub<div class="inline"><input type="password" id="gh-token" value="${esc(S.settings.ghToken || '')}" placeholder="github_pat_…" autocomplete="off" spellcheck="false"><button class="icon-btn" data-act="toggleGh" aria-label="Pokaż token">${ic('eye')}</button></div></label>
     <div class="row-btns">
       <button class="btn primary" data-act="saveSync">${on ? 'Zapisz i synchronizuj' : 'Połącz i synchronizuj'}</button>
       ${on ? '<button class="btn ghost" data-act="syncNow">Synchronizuj teraz</button>' : ''}
@@ -402,7 +402,7 @@ function openSheet(html, { full = false } = {}) {
   const root = $('#sheet-root');
   root.innerHTML = `<div class="backdrop" data-act="closeSheet"></div>
     <div class="sheet ${full ? 'full' : ''}" role="dialog" aria-modal="true">
-      <div class="sheet-head"><span class="grab"></span><button class="icon-btn close" data-act="closeSheet" aria-label="Zamknij">✕</button></div>
+      <div class="sheet-head"><span class="grab"></span><button class="icon-btn close" data-act="closeSheet" aria-label="Zamknij">${ic('x')}</button></div>
       <div class="sheet-body">${html}</div>
     </div>`;
   root.classList.add('open');
@@ -439,16 +439,18 @@ function updateOnline() {
 window.addEventListener('online', () => { updateOnline(); scheduleSync(500); });
 window.addEventListener('offline', updateOnline);
 
+const ic = (name, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const catIcon = (c) => `<span class="ico" style="--c:${esc(c.color)}">${esc(c.icon)}</span>`;
 
 function entryRow(e) {
   const inc = e.type === 'income';
   const c = inc ? INCOME : cat(e.categoryId);
-  const meta = [inc ? 'Przychód' : c.name, e.sub, e.receiptId ? '🧾' : '', e.subscriptionId ? '🔁' : '', e.debtId ? '🎓' : '', e.owedDebtId || e.owedDebtIds?.length ? '↩️ do zwrotu' : '']
-    .filter(Boolean).join(' · ');
+  const meta = [inc ? 'Przychód' : c.name, e.sub].filter(Boolean).join(' · ');
+  const marks = (e.receiptId ? ic('receipt', 'mk') : '') + (e.subscriptionId ? ic('repeat', 'mk') : '') + (e.debtId ? ic('graduation-cap', 'mk') : '')
+    + (e.owedDebtId || e.owedDebtIds?.length ? `${ic('arrow-u-up-left', 'mk')} do zwrotu` : '');
   return `<button class="row" data-act="editEntry" data-id="${e.id}">
     ${catIcon(c)}
-    <span class="row-main"><span class="row-title">${esc(e.desc || c.name)}</span><span class="row-sub">${esc(meta)}</span></span>
+    <span class="row-main"><span class="row-title">${esc(e.desc || c.name)}</span><span class="row-sub">${esc(meta)}${marks}</span></span>
     <span class="row-amt ${inc ? 'pos' : ''}">${inc ? '+' : '−'}${fmt(e.amount)}</span>
   </button>`;
 }
@@ -478,25 +480,23 @@ function viewExpenses() {
   const f = UI.f;
   const fActive = f.cat || f.from || f.to || f.type;
   return `
-    ${S.settings.demoActive ? `<div class="banner">Widzisz przykładowe dane demo. <button class="link" data-act="clearDemo">Wyczyść demo</button></div>` : ''}
-    <section class="card summary">
-      <div class="summary-title">${esc(m.label)}</div>
-      <div class="grid3">
+    <section class="hero">
+      <div class="hero-label">Bilans, ${esc(m.label)}</div>
+      <div class="hero-num ${bal < 0 ? 'neg' : ''}">${fmt(bal, { sign: true })}</div>
+      <div class="hero-stats">
         <div><small>Wydatki</small><b>${fmt(out)}</b></div>
         <div><small>Przychody</small><b class="pos">${fmt(inc)}</b></div>
-        <div><small>Bilans</small><b class="${bal >= 0 ? 'pos' : 'neg'}">${fmt(bal, { sign: true })}</b></div>
       </div>
     </section>
+    ${S.settings.demoActive ? `<div class="banner">Widzisz przykładowe dane demo. <button class="link" data-act="clearDemo">Wyczyść demo</button></div>` : ''}
     <div class="chips">
-      <button class="chip" data-act="openKorki">🎓 Korki</button>
-      <button class="chip" data-act="openSubs">🔁 Subskrypcje · ${subsMine === subsSum ? fmt(subsSum) : `${fmt(subsMine)} (${fmt(subsSum)})`}/mies.</button>
-      <button class="chip" data-act="addIncome">💰 Przychód</button>
+      <button class="chip" data-act="openSubs">${ic('repeat')}Subskrypcje <span class="muted">${subsMine === subsSum ? fmt(subsSum) : `${fmt(subsMine)} (${fmt(subsSum)})`}/mies.</span></button>
+      <button class="chip" data-act="openKorki">${ic('graduation-cap')}Korki</button>
+      <button class="chip" data-act="addIncome">${ic('plus')}Przychód</button>
     </div>
     <div class="searchbar">
-      <input type="search" id="q" placeholder="Szukaj w opisach, kategoriach, kwotach…" value="${esc(f.q)}" autocomplete="off">
-      <button class="icon-btn ${UI.showFilters || fActive ? 'on' : ''}" data-act="toggleFilters" aria-label="Filtry">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 5h18l-7 8v6l-4 2v-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-      </button>
+      <div class="search-field">${ic('magnifying-glass')}<input type="search" id="q" placeholder="Szukaj wpisów" aria-label="Szukaj w opisach, kategoriach, kwotach" value="${esc(f.q)}" autocomplete="off"></div>
+      <button class="icon-btn ${UI.showFilters || fActive ? 'on' : ''}" data-act="toggleFilters" aria-label="Filtry">${ic('sliders-horizontal')}</button>
     </div>
     ${UI.showFilters ? `<div class="card filters">
       <label>Kategoria<select id="f-cat"><option value="">Wszystkie</option>${cats().map((c) => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${esc(c.icon + ' ' + c.name)}</option>`).join('')}</select></label>
@@ -574,7 +574,7 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       <div class="cat-grid expense-only">
         ${list.map((c) => `<button type="button" class="cat-btn ${c.id === e.categoryId ? 'sel' : ''}" data-act="pickCat" data-id="${c.id}" style="--c:${esc(c.color)}"><span class="ico">${esc(c.icon)}</span><span class="cat-name">${esc(c.name)}</span></button>`).join('')}
       </div>
-      <label class="check expense-only"><input type="checkbox" name="owed" ${debt ? 'checked' : ''}> ↩️ Ktoś mi to odda (dług)</label>
+      <label class="check expense-only"><input type="checkbox" name="owed" ${debt ? 'checked' : ''}> Ktoś mi to odda (dług)</label>
       <div class="owed-box expense-only" ${debt ? '' : 'hidden'}>
         <label>Kto jest winny<input name="owedPerson" list="people" value="${esc(debt?.person || '')}" autocomplete="off" placeholder="np. Kasia"></label>
         <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
@@ -598,7 +598,7 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
         <datalist id="sublist">${subs.map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
         <label>Opis<input name="desc" value="${esc(e.desc || '')}" placeholder="${e.type === 'income' ? 'np. Wypłata' : 'np. Biedronka'}" autocomplete="off"></label>
         <label class="expense-only file-label">Zdjęcie paragonu<input type="file" name="photo" accept="image/*"></label>
-        <div class="receipt-preview">${photoBlob ? '<p class="hint">📎 Zdjęcie paragonu zostanie zapisane z wydatkiem.</p>' : ''}</div>
+        <div class="receipt-preview">${photoBlob ? `<p class="hint">${ic('paperclip', 'mk')} Zdjęcie paragonu zostanie zapisane z wydatkiem.</p>` : ''}</div>
         ${e.items?.length ? `<div class="items-ro"><b>Pozycje z paragonu</b>${e.items.map((i) => `<div><span>${esc(i.name)}</span><span>${fmt(i.price)}</span></div>`).join('')}</div>` : ''}
       </details>
       <div class="row-btns">
@@ -614,8 +614,11 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       if (ev.target.checked) form.owedPerson.focus();
     }
   });
-  form.addEventListener('input', () => updateOwedPreview(form));
+  // pole kwoty dopasowuje szerokość do wpisanej liczby, żeby „zł” stało tuż obok
+  const fitAmount = () => { form.amount.style.width = `calc(${Math.max((form.amount.value || '0,00').length, 2)}ch + .15em)`; };
+  form.addEventListener('input', () => { updateOwedPreview(form); fitAmount(); });
   updateOwedPreview(form);
+  fitAmount();
   if (e.receiptId) showReceiptPreview(e.receiptId, sheet.querySelector('.receipt-preview'));
   if (!entry) form.amount.focus();
 }
@@ -703,8 +706,8 @@ FORMS.entry = async (f) => {
 function openKorki() {
   const last = [...S.debts].filter((d) => d.kind === 'tutoring').sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
   const sheet = openSheet(`
-    <h2>🎓 Korepetycje</h2>
-    <p class="hint">Tworzy dług „ta osoba jest mi winna”. Spłata to zwrot pieniędzy — nie liczy się jako przychód.</p>
+    <h2>Korepetycje</h2>
+    <p class="hint">Tworzy dług „ta osoba jest mi winna”. Spłata to zwrot pieniędzy, nie liczy się jako przychód.</p>
     <form data-form="korki">
       <label>Osoba<input name="person" list="people" required autocomplete="off" value="${esc(last?.person || '')}"></label>
       <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
@@ -727,7 +730,7 @@ FORMS.korki = async (f) => {
   await saveDebt(d);
   if (f.paid.checked) await addPayment(d, amount, date, '');
   closeSheet();
-  toast(f.paid.checked ? `Korki ${fmt(amount)} — od razu spłacone` : `${person} jest Ci winna/winien ${fmt(amount)}`);
+  toast(f.paid.checked ? `Korki ${fmt(amount)}, od razu spłacone` : `${person} jest Ci winna/winien ${fmt(amount)}`);
   render();
 };
 
@@ -737,22 +740,22 @@ function openSubs() {
   const total = act.reduce((a, s) => a + subMonthly(s), 0);
   const mine = act.reduce((a, s) => a + subMine(s), 0);
   const row = (s) => `<button class="row" data-act="editSub" data-id="${s.id}">${catIcon(cat(s.categoryId))}
-    <span class="row-main"><span class="row-title">${esc(s.name)}</span><span class="row-sub">${s.cycle === 'year' ? `co rok, ${s.day} ${['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'][(s.month || 1) - 1]}` : `co miesiąc, ${s.day}. dnia`}${s.debtors?.length ? ` · ↩️ ${s.debtors.length} dłużn.` : ''}${s.active ? '' : ' · wstrzymana'}</span></span>
+    <span class="row-main"><span class="row-title">${esc(s.name)}</span><span class="row-sub">${s.cycle === 'year' ? `co rok, ${s.day} ${['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'][(s.month || 1) - 1]}` : `co miesiąc, ${s.day}. dnia`}${s.debtors?.length ? ` · ${s.debtors.length} dłużn.` : ''}${s.active ? '' : ' · wstrzymana'}</span></span>
     <span class="row-amt">${mineAndTotal(s.amount - subOwed(s), s.amount)}${s.debtors?.length ? '<small>mój koszt (całość)</small>' : ''}</span></button>`;
   openSheet(`
-    <h2>🔁 Subskrypcje</h2>
+    <h2>Subskrypcje</h2>
     <div class="card big-num"><small>Aktywne, miesięcznie (roczne / 12)</small><b>${mineAndTotal(mine, total)}</b>
       <small>${mineAndTotal(mine * 12, total * 12)} rocznie</small>
       ${mine === total ? '' : '<small>Pierwsza kwota to mój realny koszt po zwrotach od dłużników, w nawiasie pełna kwota subskrypcji.</small>'}</div>
     ${act.length ? `<div class="card list-card">${act.map(row).join('')}</div>` : '<div class="empty">Brak aktywnych subskrypcji.</div>'}
     ${inactive.length ? `<h3>Wstrzymane</h3><div class="card list-card">${inactive.map(row).join('')}</div>` : ''}
-    <button class="btn primary wide" data-act="editSub">+ Dodaj subskrypcję</button>`);
+    <button class="btn primary wide" data-act="editSub">Dodaj subskrypcję</button>`);
 }
 
 const debtorRow = (d = {}) => `<div class="debtor-row">
   <input name="dPerson" list="people" value="${esc(d.person || '')}" placeholder="Kto" autocomplete="off">
   <input name="dAmount" inputmode="decimal" value="${d.amount ? amountToInput(d.amount) : ''}" placeholder="Kwota zł" autocomplete="off" ${d.div ? 'readonly' : ''}>
-  <button type="button" class="icon-btn" data-act="removeDebtor" aria-label="Usuń dłużnika">✕</button>
+  <button type="button" class="icon-btn" data-act="removeDebtor" aria-label="Usuń dłużnika">${ic('x')}</button>
   <select name="dDiv" aria-label="Podział">${[['0', 'Własna kwota'], ...SHARES.map(([k, l]) => [k, k === '1' ? 'Całość' : `Oddaje ${l}`])].map(([k, l]) => `<option value="${k}" ${String(d.div || 0) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
 
 function openSubForm(s = null) {
@@ -772,10 +775,10 @@ function openSubForm(s = null) {
       </div>
       <label class="year-only" ${v.cycle === 'year' ? '' : 'hidden'}>Miesiąc pobrania<select name="month">${MON_NOM.map((m, i) => `<option value="${i + 1}" ${i + 1 === v.month ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <label>Od daty<input type="date" name="start" value="${v.start}"></label>
-      <h3>↩️ Kto mi za to oddaje</h3>
+      <h3>Kto mi za to oddaje</h3>
       <datalist id="people">${people().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
       <div class="debtors">${(v.debtors || []).map(debtorRow).join('')}</div>
-      <button type="button" class="btn ghost wide" data-act="addDebtor">+ Dodaj dłużnika</button>
+      <button type="button" class="btn ghost wide" data-act="addDebtor">${ic('plus')}Dodaj dłużnika</button>
       <p class="hint debtors-sum" hidden></p>
       <p class="hint">Przy każdym pobraniu subskrypcji powstanie dług „Mi są winni” dla każdej z osób (kwota za jeden cykl). Wydatek liczy się w całości.</p>
       <p class="hint">Wydatek doda się automatycznie w dniu pobrania (przy otwarciu aplikacji). Zaległe terminy od daty startu zostaną uzupełnione.</p>
@@ -836,7 +839,7 @@ FORMS.sub = async (f) => {
   closeSheet();
   const next = s.active ? subscriptionDueDates({ ...s, lastRun: today() }, addDays(today(), 400))[0] : null;
   toast(n ? `Zapisano. Dodano ${n} wpis(y) z subskrypcji`
-    : !s.active ? 'Zapisano — subskrypcja jest wstrzymana, nic się nie doda'
+    : !s.active ? 'Zapisano. Subskrypcja jest wstrzymana, nic się nie doda'
     : next ? `Zapisano. Pierwsze pobranie: ${fmtDate(next)}` : 'Zapisano subskrypcję');
   render();
 };
@@ -856,7 +859,7 @@ function viewStats() {
   const ch = pctChange(total, prevTotal);
   const cmp = ch === null
     ? `<span class="muted">${total ? 'brak wydatków w poprzednim okresie' : ''}</span>`
-    : `<span class="${ch > 0 ? 'neg' : 'pos'}">${ch > 0 ? '▲ +' : ch < 0 ? '▼ ' : ''}${ch.toFixed(1).replace('.', ',')}%</span> <span class="muted">vs poprzedni okres (${fmt(prevTotal)})</span>`;
+    : `<span class="${ch > 0 ? 'neg' : 'pos'}">${ch > 0 ? '+' : ''}${ch.toFixed(1).replace('.', ',')}%</span> <span class="muted">wobec poprzedniego okresu (${fmt(prevTotal)})</span>`;
   const vals = p.buckets.map((b) => sumAmt(ex.filter((e) => e.date >= b.start && e.date <= b.end)) - sumAmt(rl.filter((r) => r.date >= b.start && r.date <= b.end)));
   const labels = p.buckets.map((b, i) => (kind !== 'month' || i === 0 || (i + 1) % 5 === 0 ? b.label : ''));
   const t = today();
@@ -865,16 +868,19 @@ function viewStats() {
   return `
     <div class="seg seg-btns">${seg('week', 'Tydzień')}${seg('month', 'Miesiąc')}${seg('year', 'Rok')}</div>
     <div class="period-nav">
-      <button class="icon-btn" data-act="statsPrev" aria-label="Poprzedni okres">‹</button>
+      <button class="icon-btn" data-act="statsPrev" aria-label="Poprzedni okres">${ic('caret-left')}</button>
       <div class="period-label">${esc(p.label)}${offset === 0 ? ' <small>(bieżący)</small>' : ''}</div>
-      <button class="icon-btn" data-act="statsNext" aria-label="Następny okres" ${offset >= 0 ? 'disabled' : ''}>›</button>
+      <button class="icon-btn" data-act="statsNext" aria-label="Następny okres" ${offset >= 0 ? 'disabled' : ''}>${ic('caret-right')}</button>
     </div>
-    <section class="card">
-      <small class="muted">Suma wydatków</small>
-      <div class="total">${fmt(total)}</div>
+    <section class="hero">
+      <div class="hero-label">Suma wydatków</div>
+      <div class="hero-num">${fmt(total)}</div>
       <div class="cmp">${cmp}</div>
       ${refunds ? `<div class="hint">Uwzględnia zwroty od osób: −${fmt(refunds)}</div>` : ''}
-      <div class="mini-row"><span>Przychody <b class="pos">${fmt(inc)}</b></span><span>Bilans <b class="${inc - total >= 0 ? 'pos' : 'neg'}">${fmt(inc - total, { sign: true })}</b></span></div>
+      <div class="hero-stats">
+        <div><small>Przychody</small><b class="pos">${fmt(inc)}</b></div>
+        <div><small>Bilans</small><b class="${inc - total >= 0 ? '' : 'neg'}">${fmt(inc - total, { sign: true })}</b></div>
+      </div>
     </section>
     <section class="card">
       <h3>Wg kategorii</h3>
@@ -908,7 +914,7 @@ function debtRow(d) {
   const overdue = d.due && b > 0 && d.due < today();
   return `<button class="row debt" data-act="openDebt" data-id="${d.id}">
     <span class="avatar ${d.dir}">${esc(d.person.trim()[0] || '?').toUpperCase()}</span>
-    <span class="row-main"><span class="row-title">${esc(d.person)}${d.kind === 'tutoring' ? ' 🎓' : ''}</span>
+    <span class="row-main"><span class="row-title">${esc(d.person)}${d.kind === 'tutoring' ? ic('graduation-cap', 'mk') : ''}</span>
       <span class="row-sub">${esc(d.desc || '')}${d.desc ? ' · ' : ''}${esc(fmtDate(d.date))}${d.due ? ` · <span class="${overdue ? 'neg' : ''}">termin ${esc(fmtDate(d.due))}${overdue ? ' (po terminie)' : ''}</span>` : ''}</span>
       ${pd && b > 0 ? `<span class="progress"><i style="width:${(pd / d.amount) * 100}%"></i></span>` : ''}
     </span>
@@ -950,16 +956,17 @@ function viewDebts() {
     body = list.length ? `<div class="card list-card">${list.map(debtRow).join('')}</div>` : '<div class="empty">Archiwum jest puste. Spłacone długi trafiają tutaj.</div>';
   }
   return `
-    <section class="card summary">
-      <div class="grid3">
+    <section class="hero">
+      <div class="hero-label">Saldo netto</div>
+      <div class="hero-num ${net < 0 ? 'neg' : ''}">${fmt(net, { sign: true })}</div>
+      <div class="hero-stats">
         <div><small>Mi są winni</small><b class="pos">${fmt(sIn)}</b></div>
-        <div><small>Ja jestem winny</small><b class="neg">${fmt(sOut)}</b></div>
-        <div><small>Saldo netto</small><b class="${net >= 0 ? 'pos' : 'neg'}">${fmt(net, { sign: true })}</b></div>
+        <div><small>Ja jestem winny</small><b class="${sOut ? 'neg' : ''}">${fmt(sOut)}</b></div>
       </div>
     </section>
     <div class="seg seg-btns">${seg('active', 'Aktywne')}${seg('people', 'Osoby')}${seg('archive', 'Archiwum')}</div>
     ${body}
-    <button class="btn primary wide" data-act="addDebt">+ Dodaj dług</button>`;
+    <button class="btn primary wide" data-act="addDebt">Dodaj dług</button>`;
 }
 
 function openDebtForm(d = null, dir = 'in') {
@@ -1022,7 +1029,7 @@ function openDebt(id) {
       <div><small>Pozostało</small><b class="${b > 0 ? (d.dir === 'in' ? 'pos' : 'neg') : ''}">${fmt(Math.max(b, 0))}</b></div>
     </div>
     <p class="muted">${esc(d.desc || '')}${d.desc ? ' · ' : ''}z dnia ${esc(fmtDate(d.date, { year: true }))}${d.due ? ` · termin ${esc(fmtDate(d.due, { year: true }))}` : ''}</p>
-    ${d.expenseId ? '<p class="hint">↩️ Dług powstał z wydatku. Cała kwota wydatku liczy się w statystykach, a spłata to zwrot, nie przychód.</p>' : ''}
+    ${d.expenseId ? '<p class="hint">Dług powstał z wydatku. Cała kwota wydatku liczy się w statystykach, a spłata to zwrot, nie przychód.</p>' : ''}
     ${b > 0 ? `<form data-form="payment" class="card pay-form">
       <input type="hidden" name="id" value="${d.id}">
       <b>Dodaj spłatę</b>
@@ -1032,12 +1039,12 @@ function openDebt(id) {
       </div>
       <label>Notatka<input name="note" placeholder="np. przelew, gotówka"></label>
       <div class="row-btns"><button class="btn primary">Zapisz spłatę</button></div>
-    </form>` : '<div class="banner ok">✓ Spłacony w całości — w archiwum.</div>'}
+    </form>` : `<div class="banner ok">${ic('check-circle')}Spłacony w całości, w archiwum.</div>`}
     <h3>Historia</h3>
     <div class="card list-card">
-      ${hist.map((p) => `<div class="row static"><span class="ico" style="--c:#16a34a">✓</span><span class="row-main"><span class="row-title">Spłata ${fmt(p.amount)}</span><span class="row-sub">${esc(fmtDate(p.date, { year: true }))}${p.note ? ' · ' + esc(p.note) : ''}</span></span>
-        <button class="icon-btn" data-act="deletePayment" data-debt="${d.id}" data-id="${p.id}" aria-label="Usuń spłatę">🗑</button></div>`).join('')}
-      <div class="row static"><span class="ico" style="--c:#64748b">＋</span><span class="row-main"><span class="row-title">Powstanie długu ${fmt(d.amount)}</span><span class="row-sub">${esc(fmtDate(d.date, { year: true }))}</span></span></div>
+      ${hist.map((p) => `<div class="row static"><span class="ico glyph pos" style="--c:#16a34a">${ic('check')}</span><span class="row-main"><span class="row-title">Spłata ${fmt(p.amount)}</span><span class="row-sub">${esc(fmtDate(p.date, { year: true }))}${p.note ? ' · ' + esc(p.note) : ''}</span></span>
+        <button class="icon-btn" data-act="deletePayment" data-debt="${d.id}" data-id="${p.id}" aria-label="Usuń spłatę">${ic('trash')}</button></div>`).join('')}
+      <div class="row static"><span class="ico glyph" style="--c:#64748b">${ic('plus')}</span><span class="row-main"><span class="row-title">Powstanie długu ${fmt(d.amount)}</span><span class="row-sub">${esc(fmtDate(d.date, { year: true }))}</span></span></div>
     </div>
     <div class="row-btns">
       <button class="btn danger" data-act="deleteDebt" data-id="${d.id}">Usuń dług</button>
@@ -1058,7 +1065,7 @@ FORMS.payment = async (f) => {
   if (!(amount > 0)) return toast('Podaj kwotę spłaty');
   if (amount > b) return toast(`Maksymalnie ${fmt(b)}`);
   await addPayment(d, amount, isValidISO(f.date.value) ? f.date.value : today(), f.note.value.trim());
-  toast(balance(d) <= 0 ? 'Dług spłacony 🎉 — przeniesiono do archiwum' : `Spłata zapisana. Pozostało ${fmt(balance(d))}`);
+  toast(balance(d) <= 0 ? 'Dług spłacony, przeniesiono do archiwum' : `Spłata zapisana. Pozostało ${fmt(balance(d))}`);
   render();
   openDebt(d.id);
 };
@@ -1088,16 +1095,16 @@ function openPerson(name) {
 function openScan() {
   const noKey = !S.settings.apiKey, off = !navigator.onLine;
   const sheet = openSheet(`
-    <h2>🧾 Skan paragonu</h2>
-    ${noKey || off ? `<div class="banner warn">${noKey ? 'Brak klucza API Anthropic — skan nie zadziała. Dodaj klucz w Ustawieniach.' : 'Jesteś offline — odczyt paragonu wymaga internetu.'}
+    <h2>Skan paragonu</h2>
+    ${noKey || off ? `<div class="banner warn">${noKey ? 'Brak klucza API Anthropic, skan nie zadziała. Dodaj klucz w Ustawieniach.' : 'Jesteś offline. Odczyt paragonu wymaga internetu.'}
       Możesz dodać wydatek ręcznie${off && !noKey ? '' : ''}, a zdjęcie dołączyć jako załącznik.</div>` : '<p class="hint">Zrób zdjęcie całego paragonu na płasko, w dobrym świetle.</p>'}
     <div class="scan-btns">
-      <label class="btn primary big">📷 Zrób zdjęcie<input type="file" accept="image/*" capture="environment" class="scan-input" hidden></label>
-      <label class="btn ghost big">🖼️ Wybierz z galerii<input type="file" accept="image/*" class="scan-input" hidden></label>
+      <label class="btn primary big">${ic('camera')}Zrób zdjęcie<input type="file" accept="image/*" capture="environment" class="scan-input" hidden></label>
+      <label class="btn ghost big">${ic('image')}Wybierz z galerii<input type="file" accept="image/*" class="scan-input" hidden></label>
     </div>
     <div class="row-btns">
       ${noKey ? '<button class="btn ghost" data-act="goSettings">Ustaw klucz API</button>' : ''}
-      <button class="btn ghost" data-act="manualAdd">✍️ Dodaj ręcznie</button>
+      <button class="btn ghost" data-act="manualAdd">${ic('pencil-simple')}Dodaj ręcznie</button>
     </div>`);
   $$('.scan-input', sheet).forEach((inp) => inp.addEventListener('change', () => inp.files[0] && handleReceiptFile(inp.files[0])));
 }
@@ -1111,7 +1118,7 @@ async function handleReceiptFile(file) {
     return scanError(e.message, null);
   }
   if (!S.settings.apiKey || !navigator.onLine) {
-    return scanError(!S.settings.apiKey ? 'Brak klucza API — dodaj go w Ustawieniach.' : 'Brak internetu — nie można odczytać paragonu.', blob);
+    return scanError(!S.settings.apiKey ? 'Brak klucza API. Dodaj go w Ustawieniach.' : 'Brak internetu. Nie można odczytać paragonu.', blob);
   }
   $('.loading p').textContent = 'Odczytuję paragon… (kilka–kilkanaście sekund)';
   try {
@@ -1129,10 +1136,10 @@ function scanError(msg, blob) {
   lastScanBlob = blob;
   openSheet(`<h2>Nie udało się odczytać</h2>
     <div class="banner warn">${esc(msg)}</div>
-    <p class="hint">Dodaj wydatek ręcznie${blob ? ' — zdjęcie zostanie dołączone' : ''}.</p>
+    <p class="hint">Dodaj wydatek ręcznie${blob ? ', zdjęcie zostanie dołączone' : ''}.</p>
     <div class="row-btns">
       <button class="btn ghost" data-act="openScan">Spróbuj ponownie</button>
-      <button class="btn primary" data-act="manualFromScan">✍️ Dodaj ręcznie</button>
+      <button class="btn primary" data-act="manualFromScan">${ic('pencil-simple')}Dodaj ręcznie</button>
     </div>`);
 }
 
@@ -1154,7 +1161,7 @@ function openVerify(data) {
       <div id="sum-warn"></div>
       <h3>Pozycje <small class="muted">(${V.items.length})</small></h3>
       <div id="v-items"></div>
-      <button type="button" class="btn ghost wide" data-act="vAdd">+ Dodaj pozycję</button>
+      <button type="button" class="btn ghost wide" data-act="vAdd">${ic('plus')}Dodaj pozycję</button>
       <h3>Zapisz jako</h3>
       <div class="seg">
         <label><input type="radio" name="mode" value="single" checked><span>Jeden wydatek</span></label>
@@ -1192,8 +1199,8 @@ function renderVItems() {
       <input name="iname" value="${esc(it.name)}" aria-label="Nazwa pozycji">
       <input name="iprice" inputmode="decimal" value="${amountToInput(it.price)}" aria-label="Cena" class="price">
       <select name="icat" aria-label="Kategoria">${V.catOpts(it.categoryId)}</select>
-      <button type="button" class="icon-btn" data-act="vDel" data-i="${i}" aria-label="Usuń pozycję">✕</button>
-    </div>`).join('') || '<div class="empty small">Brak pozycji — dodaj je lub zapisz jako jeden wydatek.</div>';
+      <button type="button" class="icon-btn" data-act="vDel" data-i="${i}" aria-label="Usuń pozycję">${ic('x')}</button>
+    </div>`).join('') || '<div class="empty small">Brak pozycji. Dodaj je lub zapisz jako jeden wydatek.</div>';
   updateVSum();
 }
 function updateVSum() {
@@ -1203,8 +1210,8 @@ function updateVSum() {
   const sum = V.items.reduce((a, i) => a + (i.price || 0), 0);
   const diff = total - sum;
   $('#sum-warn').innerHTML = V.items.length && Math.abs(diff) >= 1
-    ? `<div class="banner warn">⚠️ Suma pozycji ${fmt(sum)} ≠ suma z paragonu ${fmt(total)} (różnica ${fmt(diff, { sign: true })}). Sprawdź ceny i rabaty.</div>`
-    : V.items.length ? `<div class="banner ok">✓ Suma pozycji zgadza się z paragonem (${fmt(sum)}).</div>` : '';
+    ? `<div class="banner warn">${ic('warning')}Suma pozycji ${fmt(sum)} ≠ suma z paragonu ${fmt(total)} (różnica ${fmt(diff, { sign: true })}). Sprawdź ceny i rabaty.</div>`
+    : V.items.length ? `<div class="banner ok">${ic('check-circle')}Suma pozycji zgadza się z paragonem (${fmt(sum)}).</div>` : '';
   const groups = {};
   V.items.forEach((i) => (groups[i.categoryId] = (groups[i.categoryId] || 0) + (i.price || 0)));
   const prev = $('#split-preview');
@@ -1250,45 +1257,45 @@ function viewSettings() {
   const key = S.settings.apiKey || '';
   return `
     <section class="card">
-      <h3>🧾 Skan paragonów (API Anthropic)</h3>
-      <label>Klucz API<div class="inline"><input type="password" id="api-key" value="${esc(key)}" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"><button class="icon-btn" data-act="toggleKey" aria-label="Pokaż klucz">👁</button></div></label>
+      <h3>Skan paragonów (API Anthropic)</h3>
+      <label>Klucz API<div class="inline"><input type="password" id="api-key" value="${esc(key)}" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"><button class="icon-btn" data-act="toggleKey" aria-label="Pokaż klucz">${ic('eye')}</button></div></label>
       <label>Model<input id="api-model" value="${esc(S.settings.model || DEFAULT_MODEL)}" spellcheck="false" autocapitalize="off"></label>
       <p class="hint">Klucz jest zapisany tylko lokalnie na tym urządzeniu (IndexedDB) i wysyłany wyłącznie do api.anthropic.com przy skanie. Nie trafia do kopii zapasowej. Utwórz go w console.anthropic.com.</p>
       ${key ? '<button class="btn ghost" data-act="removeKey">Usuń klucz</button>' : ''}
     </section>
     <section class="card">
-      <h3>🏷️ Kategorie</h3>
+      <h3>Kategorie</h3>
       <div class="list-card">${cats().map((c) => `<button class="row ${c.hidden ? 'dim' : ''}" data-act="editCat" data-id="${c.id}">${catIcon(c)}
-        <span class="row-main"><span class="row-title">${esc(c.name)}</span><span class="row-sub">${c.hidden ? 'ukryta · ' : ''}${c.subs?.length ? esc(c.subs.join(', ')) : 'bez podkategorii'}</span></span><span class="chev">›</span></button>`).join('')}</div>
-      <button class="btn ghost wide" data-act="editCat">+ Nowa kategoria</button>
+        <span class="row-main"><span class="row-title">${esc(c.name)}</span><span class="row-sub">${c.hidden ? 'ukryta · ' : ''}${c.subs?.length ? esc(c.subs.join(', ')) : 'bez podkategorii'}</span></span><span class="chev">${ic('caret-right')}</span></button>`).join('')}</div>
+      <button class="btn ghost wide" data-act="editCat">${ic('plus')}Nowa kategoria</button>
     </section>
     <section class="card">
-      <h3>🔁 Subskrypcje</h3>
+      <h3>Subskrypcje</h3>
       <button class="btn ghost wide" data-act="openSubs">Zarządzaj subskrypcjami (${S.subs.filter((s) => s.active).length} aktywne)</button>
     </section>
     ${syncCard()}
     <section class="card">
-      <h3>💾 Dane i kopia zapasowa</h3>
+      <h3>Dane i kopia zapasowa</h3>
       <div class="btn-col">
-        <button class="btn ghost" data-act="exportJSON">⬇️ Eksportuj kopię (JSON)</button>
-        <label class="btn ghost">⬆️ Importuj kopię (JSON)<input type="file" accept="application/json,.json" id="import-file" hidden></label>
-        <button class="btn ghost" data-act="exportCSV">📄 Eksportuj wydatki (CSV)</button>
+        <button class="btn ghost" data-act="exportJSON">${ic('download-simple')}Eksportuj kopię (JSON)</button>
+        <label class="btn ghost">${ic('upload-simple')}Importuj kopię (JSON)<input type="file" accept="application/json,.json" id="import-file" hidden></label>
+        <button class="btn ghost" data-act="exportCSV">${ic('file-text')}Eksportuj wydatki (CSV)</button>
       </div>
       <h3>Dane demo</h3>
       <div class="btn-col">
-        ${S.settings.demoActive ? '<button class="btn ghost" data-act="clearDemo">🧹 Wyczyść dane demo</button>' : '<button class="btn ghost" data-act="loadDemo">✨ Wczytaj dane demo</button>'}
+        ${S.settings.demoActive ? '<button class="btn ghost" data-act="clearDemo">Wyczyść dane demo</button>' : '<button class="btn ghost" data-act="loadDemo">Wczytaj dane demo</button>'}
         <button class="btn danger" data-act="wipeAll">Usuń wszystkie dane</button>
       </div>
     </section>
     <section class="card">
-      <h3>🎨 Motyw</h3>
+      <h3>Motyw</h3>
       <div class="seg">${[['auto', 'Auto'], ['light', 'Jasny'], ['dark', 'Ciemny']].map(([k, l]) => `<button class="${getTheme() === k ? 'on' : ''}" data-act="theme" data-theme="${k}">${l}</button>`).join('')}</div>
     </section>
     <section class="card about">
       <p><b>Budżet</b> v${esc(APP_VERSION)} · działa offline · ${S.entries.length} wpisów</p>
       ${UI.update.ready
-        ? '<button class="btn primary wide" data-act="applyUpdate">🔄 Nowa wersja gotowa — uruchom ponownie</button>'
-        : `<button class="btn ghost wide" data-act="checkUpdate" ${UI.update.checking ? 'disabled' : ''}>${UI.update.checking ? 'Sprawdzam…' : '🔄 Sprawdź aktualizacje'}</button>`}
+        ? `<button class="btn primary wide" data-act="applyUpdate">${ic('arrows-clockwise')}Nowa wersja gotowa, uruchom ponownie</button>`
+        : `<button class="btn ghost wide" data-act="checkUpdate" ${UI.update.checking ? 'disabled' : ''}>${UI.update.checking ? 'Sprawdzam…' : `${ic('arrows-clockwise')}Sprawdź aktualizacje`}</button>`}
     </section>`;
 }
 
@@ -1331,7 +1338,7 @@ function openCatForm(c = null) {
       </details>
       <label>Podkategorie (oddziel przecinkami)<input name="subs" value="${esc((v.subs || []).join(', '))}" placeholder="np. Kino, Gry"></label>
       <label class="check"><input type="checkbox" name="hidden" ${v.hidden ? 'checked' : ''}> Ukryj (nie pokazuj przy dodawaniu; historia zostaje)</label>
-      <div class="row-btns">${c ? `<button type="button" class="btn ghost" data-act="moveCat" data-id="${c.id}" data-d="-1">↑</button><button type="button" class="btn ghost" data-act="moveCat" data-id="${c.id}" data-d="1">↓</button>` : ''}<button class="btn primary big">Zapisz</button></div>
+      <div class="row-btns">${c ? `<button type="button" class="btn ghost" data-act="moveCat" data-id="${c.id}" data-d="-1" aria-label="Przesuń wyżej">${ic('arrow-up')}</button><button type="button" class="btn ghost" data-act="moveCat" data-id="${c.id}" data-d="1" aria-label="Przesuń niżej">${ic('arrow-down')}</button>` : ''}<button class="btn primary big">Zapisz</button></div>
     </form>`);
 }
 FORMS.cat = async (f) => {
