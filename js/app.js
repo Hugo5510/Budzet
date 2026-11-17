@@ -516,8 +516,6 @@ function viewExpenses() {
     ${S.settings.demoActive ? `<div class="banner">Widzisz przykładowe dane demo. <button class="link" data-act="clearDemo">Wyczyść demo</button></div>` : ''}
     <div class="chips">
       <button class="chip" data-act="openSubs">${ic('repeat')}Subskrypcje <span class="muted">${subsMine === subsSum ? fmt(subsSum) : `${fmt(subsMine)} (${fmt(subsSum)})`}/mies.</span></button>
-      <button class="chip" data-act="openKorki">${ic('graduation-cap')}Korki</button>
-      <button class="chip" data-act="addIncome">${ic('plus')}Przychód</button>
     </div>
     <div class="searchbar">
       <div class="search-field">${ic('magnifying-glass')}<input type="search" id="q" placeholder="Szukaj wpisów" aria-label="Szukaj w opisach, kategoriach, kwotach" value="${esc(f.q)}" autocomplete="off"></div>
@@ -550,6 +548,8 @@ function filtered() {
     .sort(byDateDesc);
 }
 
+const plWpis = (n) => (n === 1 ? 'wpis' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'wpisy' : 'wpisów');
+
 function renderList() {
   const el = $('#exp-list');
   if (!el) return;
@@ -563,8 +563,17 @@ function renderList() {
   const head = active
     ? `<div class="found">Znaleziono: ${list.length} · wydatki ${fmt(sumAmt(list.filter((e) => e.type === 'expense')))}</div>`
     : '';
-  el.innerHTML = head + groupedList(list.slice(0, UI.limit)) +
-    (list.length > UI.limit ? `<button class="btn ghost wide" data-act="more">Pokaż więcej (${list.length - UI.limit})</button>` : '');
+  const more = (l) => (l.length > UI.limit ? `<button class="btn ghost wide" data-act="more">Pokaż więcej (${l.length - UI.limit})</button>` : '');
+  if (active) { el.innerHTML = head + groupedList(list.slice(0, UI.limit)) + more(list); return; }
+  // bez wyszukiwania: widać tylko 2 ostatnie dni, reszta jest zwinięta pod kafelkiem „Historia”
+  const days = [...new Set(list.map((e) => e.date))];
+  const recent = list.filter((e) => days.indexOf(e.date) < 2), rest = list.filter((e) => days.indexOf(e.date) >= 2);
+  el.innerHTML = groupedList(recent) + (rest.length ? `
+    <button class="card history-tile ${UI.histOpen ? 'open' : ''}" data-act="toggleHistory" aria-expanded="${!!UI.histOpen}">
+      <span class="row-main"><span class="row-title">Historia</span><span class="row-sub">${rest.length} ${plWpis(rest.length)}, od ${esc(fmtDate(rest[rest.length - 1].date, { year: true }))}</span></span>
+      <span class="chev">${ic('caret-right')}</span>
+    </button>
+    ${UI.histOpen ? `<div class="history">${groupedList(rest.slice(0, UI.limit))}${more(rest)}</div>` : ''}` : '');
 }
 
 // ---- formularz wpisu (wydatek / przychód)
@@ -598,6 +607,7 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       ${linked ? `<p class="hint">Wpis powiązany ze spłatą długu (${esc(e.desc)}). Kwotę zmienisz w zakładce Długi.</p>` : ''}
       <div class="cat-grid expense-only">
         ${list.map((c) => `<button type="button" class="cat-btn ${c.id === e.categoryId ? 'sel' : ''}" data-act="pickCat" data-id="${c.id}" style="--c:${esc(c.color)}"><span class="ico">${esc(c.icon)}</span><span class="cat-name">${esc(c.name)}</span></button>`).join('')}
+        ${entry ? '' : '<button type="button" class="cat-btn" data-act="openKorki" style="--c:#7c3aed"><span class="ico">🎓</span><span class="cat-name">Korki</span></button>'}
       </div>
       <label class="check expense-only"><input type="checkbox" name="owed" ${debt ? 'checked' : ''}> Ktoś mi to odda (dług)</label>
       <div class="owed-box expense-only" ${debt ? '' : 'hidden'}>
@@ -1501,6 +1511,7 @@ const ACT = {
   toggleFilters: () => { UI.showFilters = !UI.showFilters; render(); },
   resetFilters: () => { UI.f = { q: UI.f.q, cat: '', from: '', to: '', type: '' }; render(); },
   more: () => { UI.limit += 200; renderList(); },
+  toggleHistory: () => { UI.histOpen = !UI.histOpen; renderList(); },
   openKorki: () => openKorki(),
   openSubs: () => openSubs(),
   editSub: (el) => openSubForm(S.subs.find((s) => s.id === el.dataset.id) || null),
