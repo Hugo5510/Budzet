@@ -90,8 +90,11 @@
 
 /* ---------- podstawa */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+/* Przewija się samo body, a nie okno przeglądarki. Dzięki temu pasek adresu Safari się nie chowa,
+   wysokość ekranu się nie zmienia i przypięty pasek zakładek zostaje na dole (bez skoków przy przewijaniu). */
 body {
+  position: fixed; inset: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch;
   margin: 0;
   background: var(--bg);
   color: var(--text);
@@ -99,8 +102,7 @@ body {
   letter-spacing: -.011em;
   -webkit-font-smoothing: antialiased;
   padding: calc(72px + var(--sat)) calc(16px + var(--sar)) calc(var(--dock-h) + var(--dock-b) + 40px) calc(16px + var(--sal));
-  min-height: 100dvh;
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: contain;
 }
 body.noscroll { overflow: hidden; }
 #view { max-width: 620px; margin: 0 auto; }
@@ -182,13 +184,18 @@ code { background: var(--fill); padding: 1px 6px; border-radius: 6px; font: .84e
   color: var(--muted); font-size: .64rem; font-weight: 600; letter-spacing: 0;
   transition: background-color .25s var(--ease), color .25s var(--ease), transform .2s var(--ease);
 }
-.tabbar button .ic { width: 24px; height: 24px; }
+.tabbar button .ic { width: 24px; height: 24px; transition: transform .35s var(--ease); }
+.tabbar button.active .ic { transform: translateY(-2px); }
 .tabbar button .solid { display: none; }
 .tabbar button.active { color: var(--text); background: var(--fill); }
 .tabbar button.active .line { display: none; }
-.tabbar button.active .solid { display: block; animation: tab-pop .45s var(--ease); }
+.tabbar button.active .solid { display: block; animation: tab-lift .5s var(--ease); }
 .tabbar button.active { animation: tab-ring .6s var(--ease); }
 @keyframes tab-pop { 0% { transform: scale(.82); } 55% { transform: scale(1.14); } 100% { transform: scale(1); } }
+/* kliknięta ikona lekko się podnosi (z małym odbiciem) i zostaje 2px wyżej */
+@keyframes tab-lift { 0% { transform: translateY(1px) scale(.86); } 45% { transform: translateY(-7px) scale(1.12); } 75% { transform: translateY(-1px) scale(.98); } 100% { transform: translateY(-2px) scale(1); } }
+.tabbar button.active span { animation: tab-label .5s var(--ease); }
+@keyframes tab-label { 0% { transform: translateY(2px); opacity: .6; } 45% { transform: translateY(-2px); } 100% { transform: none; opacity: 1; } }
 @keyframes tab-ring { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--text) 16%, transparent); } to { box-shadow: 0 0 0 10px transparent; } }
 .tabbar button:active { transform: scale(.94); }
 .fab-add {
