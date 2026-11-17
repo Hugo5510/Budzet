@@ -1464,7 +1464,7 @@ function exportCSV() {
 
 // ---------------------------------------------------------------- akcje (delegacja zdarzeń)
 const ACT = {
-  tab: (el) => { UI.tab = el.dataset.tab; window.scrollTo(0, 0); render(); },
+  tab: (el) => { UI.tab = el.dataset.tab; document.body.scrollTop = 0; render(); },
   closeSheet: () => closeSheet(),
   addEntry: () => openEntrySheet(),
   addIncome: () => openEntrySheet(null, { type: 'income' }),
