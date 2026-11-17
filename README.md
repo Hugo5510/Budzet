@@ -45,6 +45,8 @@ Klucz jest zapisany tylko w IndexedDB na tym urządzeniu i wysyłany wyłącznie
 - *Eksportuj kopię (JSON)*: wszystko, łącznie ze zdjęciami paragonów. *Importuj* zastępuje obecne dane.
 - *Eksportuj wydatki (CSV)*: separator `;` i przecinek dziesiętny, plik otwiera się poprawnie w polskim Excelu.
 
+Raz w miesiącu, przy uruchomieniu, aplikacja przypomina o kopii, jeśli od ostatniej minęło ponad 30 dni.
+
 Dane są tylko w przeglądarce telefonu. Wyczyszczenie danych przeglądarki albo odinstalowanie aplikacji je usuwa, więc rób kopię regularnie.
 
 ## Dług z wydatku („ktoś mi to odda”)

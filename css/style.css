@@ -186,7 +186,10 @@ code { background: var(--fill); padding: 1px 6px; border-radius: 6px; font: .84e
 .tabbar button .solid { display: none; }
 .tabbar button.active { color: var(--text); background: var(--fill); }
 .tabbar button.active .line { display: none; }
-.tabbar button.active .solid { display: block; }
+.tabbar button.active .solid { display: block; animation: tab-pop .45s var(--ease); }
+.tabbar button.active { animation: tab-ring .6s var(--ease); }
+@keyframes tab-pop { 0% { transform: scale(.82); } 55% { transform: scale(1.14); } 100% { transform: scale(1); } }
+@keyframes tab-ring { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--text) 16%, transparent); } to { box-shadow: 0 0 0 10px transparent; } }
 .tabbar button:active { transform: scale(.94); }
 .fab-add {
   pointer-events: auto; flex: none; width: var(--dock-h); height: var(--dock-h); border-radius: 50%; border: 0; cursor: pointer;
@@ -294,6 +297,16 @@ input[type=checkbox]::after {
 }
 input[type=checkbox]:checked { background: var(--switch); }
 input[type=checkbox]:checked::after { transform: translateX(20px); }
+/* klasa .pulse dodawana przy kliknięciu, żeby nie pulsowało przy samym otwarciu formularza */
+input[type=checkbox].pulse:checked { animation: ring-on .55s var(--ease); }
+input[type=checkbox].pulse:not(:checked) { animation: ring-off .55s var(--ease); }
+input[type=checkbox].pulse:checked::after { animation: knob-on .4s var(--ease); }
+input[type=checkbox].pulse:not(:checked)::after { animation: knob-off .4s var(--ease); }
+/* lekki puls: rozchodzący się pierścień + krótkie „ściśnięcie” gałki */
+@keyframes ring-on { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--switch) 45%, transparent); } to { box-shadow: 0 0 0 9px transparent; } }
+@keyframes ring-off { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--muted) 35%, transparent); } to { box-shadow: 0 0 0 9px transparent; } }
+@keyframes knob-on { 0% { transform: translateX(0); } 45% { transform: translateX(16px) scaleX(1.18); } 100% { transform: translateX(20px); } }
+@keyframes knob-off { 0% { transform: translateX(20px); } 45% { transform: translateX(4px) scaleX(1.18); } 100% { transform: translateX(0); } }
 input, select {
   width: 100%; min-height: 48px; padding: 11px 14px; border-radius: var(--r-md);
   border: 0; background-color: var(--fill); color: var(--text); font-size: 16px; font-weight: 450;
@@ -504,3 +517,9 @@ details.more[open] summary::after { content: '\2212'; }
   .tabbar, .nav-btn { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 [hidden] { display: none !important; }
+
+/* przypomnienie o kopii */
+.remind { text-align: center; padding: 6px 4px 4px; }
+.remind h2 { margin: 14px 0 8px; padding: 0 !important; }
+.remind p { margin: 0 6px 20px; line-height: 1.45; }
+.remind-ic { display: inline-grid; place-items: center; width: 60px; height: 60px; border-radius: 18px; background: var(--fill); font-size: 1.6rem; animation: tab-pop .6s var(--ease) .15s both; }
