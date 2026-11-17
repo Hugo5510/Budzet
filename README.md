@@ -49,7 +49,7 @@ Dane są tylko w przeglądarce telefonu. Wyczyszczenie danych przeglądarki albo
 
 ## Dług z wydatku („ktoś mi to odda”)
 
-W formularzu wydatku zaznacz **↩️ Ktoś mi to odda**, wpisz osobę i (opcjonalnie) kwotę do zwrotu oraz termin. Cały wydatek liczy się w statystykach, a w zakładce Długi pojawia się wpis „Mi są winni”. Wydatek liczy się w całości od razu, a każda spłata długu pomniejsza wydatki (w kategorii oryginalnego wydatku, w okresie spłaty) i podnosi bilans o oddaną kwotę. Spłata korków nadal nie jest przychodem. Usunięcie wydatku usuwa też powiązany dług (aplikacja pyta o potwierdzenie).
+W formularzu wydatku zaznacz **Ktoś mi to odda**, wpisz osobę i (opcjonalnie) kwotę do zwrotu oraz termin. Cały wydatek liczy się w statystykach, a w zakładce Długi pojawia się wpis „Mi są winni”. Wydatek liczy się w całości od razu, a każda spłata długu pomniejsza wydatki (w kategorii oryginalnego wydatku, w okresie spłaty) i podnosi bilans o oddaną kwotę. Spłata korków nadal nie jest przychodem. Usunięcie wydatku usuwa też powiązany dług (aplikacja pyta o potwierdzenie).
 
 ## Subskrypcje z dłużnikami
 
@@ -80,10 +80,10 @@ Przy pierwszym uruchomieniu wczytują się przykładowe dane. Usuwa je przycisk 
 ## Struktura
 
 ```
-index.html        – szkielet, dolny pasek nawigacji
+index.html        – szkielet, pływający pasek zakładek, wbudowane ikony (Phosphor Icons, MIT)
 manifest.json     – manifest PWA (standalone, ikony 192/512/maskable)
 sw.js             – service worker (cache całej aplikacji)
-css/style.css     – style, tryb jasny/ciemny, safe-area
+css/style.css     – style (szata 2.0), tryb jasny/ciemny, safe-area
 js/app.js         – widoki i logika UI
 js/db.js          – IndexedDB
 js/util.js        – kwoty, daty, okresy statystyk, terminy subskrypcji
