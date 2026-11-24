@@ -538,3 +538,24 @@ details.more[open] summary::after { content: '\2212'; }
 .history-tile.open .chev { transform: rotate(90deg); }
 .history { animation: hist-in .4s var(--ease); }
 @keyframes hist-in { from { opacity: 0; transform: translateY(-6px); } }
+
+/* Korki jako podłużny kafelek pod formularzem wydatku */
+.korki-tile { width: 100%; display: flex; align-items: center; gap: 12px; border: 0; text-align: left; cursor: pointer; margin: 14px 0 0; background: var(--fill); color: var(--text); transition: transform .2s var(--ease); }
+.korki-tile:active { transform: scale(.985); }
+
+/* zaznaczanie kilku długów osoby */
+.sel-row { position: relative; display: flex; align-items: center; padding-left: 14px; }
+.sel-row + .sel-row::before { content: ''; position: absolute; top: 0; left: 104px; right: 0; height: 1px; background: color-mix(in srgb, var(--text) 9%, transparent); }
+.sel-row .row { flex: 1; width: auto; min-width: 0; padding-left: 10px; }
+input[type=checkbox].pick { width: 24px; height: 24px; border-radius: 50%; background: none; box-shadow: inset 0 0 0 2px var(--fill-strong); animation: none; }
+input[type=checkbox].pick::after { content: ''; inset: 0; top: 0; left: 0; width: auto; height: auto; border-radius: 50%; background: none; box-shadow: none; transform: none; animation: none; }
+input[type=checkbox].pick:checked { background: var(--accent); box-shadow: none; }
+input[type=checkbox].pick:checked::after {
+  background: var(--accent-ink); transform: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 16px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+.sel-all { font-size: .85rem; }
+.bulk-bar { position: sticky; bottom: 8px; z-index: 2; box-shadow: 0 6px 24px rgba(0, 0, 0, .14); animation: hist-in .3s var(--ease); }
+.bulk-bar .row-btns { margin-top: 10px; }
+.bulk-info b { font-family: var(--num); font-variant-numeric: tabular-nums; }

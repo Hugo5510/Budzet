@@ -57,6 +57,14 @@ W formularzu wydatku zaznacz **Ktoś mi to odda**, wpisz osobę i (opcjonalnie) 
 
 W formularzu subskrypcji możesz dodać kilka osób, które Ci za nią oddają (osoba + kwota za jeden cykl). Przy każdym pobraniu powstaje wydatek i dług „Mi są winni” dla każdej z nich. Spłata działa tak samo jak przy zwykłym długu z wydatku. Zmiana listy dłużników dotyczy kolejnych pobrań, a już utworzone długi zostają.
 
+## Wzajemne długi i spłata kilku naraz
+
+Zakładka Długi otwiera się na widoku **Osoby**. Gdy dodajesz nowy dług (ręcznie, przez Korki albo z wydatku), a ta sama osoba ma aktywny dług w przeciwną stronę, kwoty się znoszą: po obu stronach zapisuje się „potrącenie” na wspólną kwotę. Usunięcie potrącenia albo jednego z długów cofa je też po drugiej stronie.
+
+W widoku osoby możesz zaznaczyć kilka jej długów i jednym przyciskiem oznaczyć je jako spłacone albo usunąć.
+
+Korki dodajesz z formularza wydatku: podłużny kafelek **Korki** jest pod przyciskiem Zapisz.
+
 ## Synchronizacja telefon ↔ komputer (GitHub)
 
 Dane trafiają do **prywatnego** repozytorium na Twoim koncie GitHub (jeden plik `budzet-dane.json`). Serwera pośredniego nie ma. Zdjęcia paragonów zostają na urządzeniu, a odczytane z nich pozycje się synchronizują. Dane demo, klucz API i token nie są wysyłane.
