@@ -17,7 +17,7 @@ const UI = {
   stats: { kind: 'month', offset: 0 },
   f: { q: '', cat: '', from: '', to: '', type: '' },
   showFilters: false,
-  debtView: 'active',
+  debtView: 'people',
   limit: 150,
   update: { ready: false, checking: false },
 };
@@ -272,6 +272,7 @@ async function clearDemo() {
   S.entries = S.entries.filter((x) => !x.demo);
   S.subs = S.subs.filter((x) => !x.demo);
   S.debts = S.debts.filter((x) => !x.demo);
+  await dropOffsets(new Set(d.flatMap((x) => x.payments.map((p) => p.offset)).filter(Boolean)));
   await setSetting('demoActive', false);
 }
 
@@ -548,6 +549,7 @@ function filtered() {
     .sort(byDateDesc);
 }
 
+const plDlug = (n) => (n === 1 ? 'dług' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'długi' : 'długów');
 const plWpis = (n) => (n === 1 ? 'wpis' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'wpisy' : 'wpisów');
 
 function renderList() {
@@ -607,7 +609,6 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
       ${linked ? `<p class="hint">Wpis powiązany ze spłatą długu (${esc(e.desc)}). Kwotę zmienisz w zakładce Długi.</p>` : ''}
       <div class="cat-grid expense-only">
         ${list.map((c) => `<button type="button" class="cat-btn ${c.id === e.categoryId ? 'sel' : ''}" data-act="pickCat" data-id="${c.id}" style="--c:${esc(c.color)}"><span class="ico">${esc(c.icon)}</span><span class="cat-name">${esc(c.name)}</span></button>`).join('')}
-        ${entry ? '' : '<button type="button" class="cat-btn" data-act="openKorki" style="--c:#7c3aed"><span class="ico">🎓</span><span class="cat-name">Korki</span></button>'}
       </div>
       <label class="check expense-only"><input type="checkbox" name="owed" ${debt ? 'checked' : ''}> Ktoś mi to odda (dług)</label>
       <div class="owed-box expense-only" ${debt ? '' : 'hidden'}>
@@ -640,6 +641,11 @@ function openEntrySheet(entry = null, preset = {}, photoBlob = null) {
         ${entry ? `<button type="button" class="btn danger" data-act="deleteEntry" data-id="${e.id}">Usuń</button>` : ''}
         <button class="btn primary big" type="submit">Zapisz</button>
       </div>
+      ${entry ? '' : `<button type="button" class="card korki-tile expense-only" data-act="openKorki">
+        <span class="ico" style="--c:#7c3aed">🎓</span>
+        <span class="row-main"><span class="row-title">Korki</span><span class="row-sub">Ktoś jest Ci winien za korepetycje</span></span>
+        <span class="chev">${ic('caret-right')}</span>
+      </button>`}
     </form>`);
   const form = sheet.querySelector('form');
   form.addEventListener('change', (ev) => {
@@ -718,6 +724,7 @@ FORMS.entry = async (f) => {
     e.receiptId = await storeReceipt(blob, date);
     if (prev) { await saveEntry(e); await maybeDeleteReceipt(prev); }
   }
+  let off = 0, offDebt = null;
   if (owed) {
     const fields = { person: owedPerson, amount: owedAmount, date, desc: e.desc || cat(categoryId).name, due: isValidISO(f.owedDue.value) ? f.owedDue.value : '' };
     if (oldDebt) await saveDebt({ ...oldDebt, ...fields });
@@ -725,15 +732,17 @@ FORMS.entry = async (f) => {
       const d = { id: uid(), dir: 'in', ...fields, payments: [], kind: 'expense', expenseId: e.id, createdAt: Date.now() };
       await saveDebt(d);
       e.owedDebtId = d.id;
+      off = await offsetDebts(d);
+      offDebt = d;
     }
   } else {
-    if (oldDebt) await removeFrom('debts', S.debts, oldDebt.id);
+    if (oldDebt) await removeDebt(oldDebt);
     delete e.owedDebtId;
   }
   pendingPhoto = null;
   await saveEntry(e);
   closeSheet();
-  toast(old ? 'Zapisano zmiany' : type === 'income' ? 'Dodano przychód' : `Dodano: ${fmt(amount)}`);
+  toast((old ? 'Zapisano zmiany' : type === 'income' ? 'Dodano przychód' : `Dodano: ${fmt(amount)}`) + offsetMsg(off, offDebt));
   render();
 };
 
@@ -764,8 +773,9 @@ FORMS.korki = async (f) => {
   const d = { id: uid(), dir: 'in', person, amount, date, desc: f.desc.value.trim() || 'Korepetycje', due: '', payments: [], kind: 'tutoring', createdAt: Date.now() };
   await saveDebt(d);
   if (f.paid.checked) await addPayment(d, amount, date, '');
+  const off = await offsetDebts(d);
   closeSheet();
-  toast(f.paid.checked ? `Korki ${fmt(amount)}, od razu spłacone` : `${person} jest Ci winna/winien ${fmt(amount)}`);
+  toast(f.paid.checked ? `Korki ${fmt(amount)}, od razu spłacone` : `${person} jest Ci winna/winien ${fmt(amount)}${offsetMsg(off, d)}`);
   render();
 };
 
@@ -999,7 +1009,7 @@ function viewDebts() {
         <div><small>Ja jestem winny</small><b class="${sOut ? 'neg' : ''}">${fmt(sOut)}</b></div>
       </div>
     </section>
-    <div class="seg seg-btns">${seg('active', 'Aktywne')}${seg('people', 'Osoby')}${seg('archive', 'Archiwum')}</div>
+    <div class="seg seg-btns">${seg('people', 'Osoby')}${seg('active', 'Aktywne')}${seg('archive', 'Archiwum')}</div>
     ${body}
     <button class="btn primary wide" data-act="addDebt">Dodaj dług</button>`;
 }
@@ -1043,8 +1053,9 @@ FORMS.debt = async (f) => {
     const e = S.entries.find((x) => x.id === p.entryId);
     if (e) { e.desc = `Korepetycje – ${d.person}`; await saveEntry(e); }
   }
+  const off = old ? 0 : await offsetDebts(d);
   closeSheet();
-  toast('Zapisano dług');
+  toast(`Zapisano dług${offsetMsg(off, d)}`);
   render();
 };
 
@@ -1077,7 +1088,7 @@ function openDebt(id) {
     </form>` : `<div class="banner ok">${ic('check-circle')}Spłacony w całości, w archiwum.</div>`}
     <h3>Historia</h3>
     <div class="card list-card">
-      ${hist.map((p) => `<div class="row static"><span class="ico glyph pos" style="--c:#16a34a">${ic('check')}</span><span class="row-main"><span class="row-title">Spłata ${fmt(p.amount)}</span><span class="row-sub">${esc(fmtDate(p.date, { year: true }))}${p.note ? ' · ' + esc(p.note) : ''}</span></span>
+      ${hist.map((p) => `<div class="row static"><span class="ico glyph pos" style="--c:#16a34a">${ic('check')}</span><span class="row-main"><span class="row-title">${p.offset ? 'Potrącenie' : 'Spłata'} ${fmt(p.amount)}</span><span class="row-sub">${esc(fmtDate(p.date, { year: true }))}${p.note ? ' · ' + esc(p.note) : ''}</span></span>
         <button class="icon-btn" data-act="deletePayment" data-debt="${d.id}" data-id="${p.id}" aria-label="Usuń spłatę">${ic('trash')}</button></div>`).join('')}
       <div class="row static"><span class="ico glyph" style="--c:#64748b">${ic('plus')}</span><span class="row-main"><span class="row-title">Powstanie długu ${fmt(d.amount)}</span><span class="row-sub">${esc(fmtDate(d.date, { year: true }))}</span></span></div>
     </div>
@@ -1085,6 +1096,52 @@ function openDebt(id) {
       <button class="btn danger" data-act="deleteDebt" data-id="${d.id}">Usuń dług</button>
       <button class="btn ghost" data-act="editDebt" data-id="${d.id}">Edytuj</button>
     </div>`);
+}
+
+// Wzajemne długi się znoszą: nowy dług pomniejsza aktywne długi tej samej osoby w przeciwną stronę.
+// Po obu stronach powstaje spłata „potrącenie” ze wspólnym znacznikiem offset (usuwane razem).
+async function offsetDebts(nd) {
+  const name = nd.person.trim();
+  const opp = S.debts
+    .filter((d) => d.id !== nd.id && d.dir !== nd.dir && d.person.trim() === name && balance(d) > 0)
+    .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || a.date.localeCompare(b.date));
+  let total = 0;
+  for (const d of opp) {
+    const x = Math.min(balance(d), balance(nd));
+    if (!(x > 0)) break;
+    const offset = uid(), date = nd.date > d.date ? nd.date : d.date;
+    d.payments.push({ id: uid(), amount: x, date, note: `Potrącenie: ${nd.desc || 'dług'}`, offset });
+    nd.payments.push({ id: uid(), amount: x, date, note: `Potrącenie: ${d.desc || 'dług'}`, offset });
+    await saveDebt(d);
+    total += x;
+  }
+  if (total) await saveDebt(nd);
+  return total;
+}
+const offsetMsg = (total, nd) => (total ? ` · potrącono ${fmt(total)} z długów (${nd.person.trim()})` : '');
+
+// usuwa spłaty-potrącenia o podanych znacznikach ze wszystkich długów
+async function dropOffsets(offsets) {
+  if (!offsets.size) return;
+  for (const d of S.debts) {
+    if (!d.payments.some((p) => offsets.has(p.offset))) continue;
+    d.payments = d.payments.filter((p) => !offsets.has(p.offset));
+    await saveDebt(d);
+  }
+}
+async function removeDebt(d) {
+  await removeFrom('debts', S.debts, d.id);
+  await dropOffsets(new Set(d.payments.map((p) => p.offset).filter(Boolean)));
+}
+// usuwa dług razem z powiązanymi przychodami (stare korki); wydatek „ktoś mi to odda” zostaje, ale bez powiązania
+async function deleteDebtFull(d) {
+  for (const e of S.entries.filter((x) => x.debtId === d.id)) await removeFrom('entries', S.entries, e.id);
+  for (const e of S.entries.filter((x) => x.owedDebtId === d.id || x.owedDebtIds?.includes(d.id))) {
+    if (e.owedDebtId === d.id) delete e.owedDebtId;
+    if (e.owedDebtIds) e.owedDebtIds = e.owedDebtIds.filter((id) => id !== d.id);
+    await saveEntry(e);
+  }
+  await removeDebt(d);
 }
 
 async function addPayment(d, amount, date, note) {
@@ -1114,16 +1171,41 @@ function openPerson(name) {
     d.payments.forEach((p) => events.push({ date: p.date, t: `Spłata${p.note ? ' · ' + p.note : ''} (${d.desc || 'dług'})`, a: p.amount, s: d.dir === 'in' ? -1 : 1, id: d.id }));
   });
   events.sort((a, b) => b.date.localeCompare(a.date));
-  openSheet(`
+  const sheet = openSheet(`
     <div class="debt-head"><span class="avatar big ${net >= 0 ? 'in' : 'out'}">${esc(name[0] || '?').toUpperCase()}</span>
       <div><h2>${esc(name)}</h2><div class="muted">${net > 0 ? 'jest Ci winna/winien' : net < 0 ? 'jesteś winny' : 'rozliczeni'}</div></div></div>
     <div class="card big-num"><small>Saldo łączne</small><b class="${net > 0 ? 'pos' : net < 0 ? 'neg' : ''}">${fmt(net, { sign: true })}</b></div>
-    <h3>Długi</h3>
-    <div class="card list-card">${list.sort(byDateDesc).map(debtRow).join('')}</div>
+    <h3 class="sec-head"><span>Długi</span><button type="button" class="link sel-all" data-act="selAllDebts">Zaznacz wszystkie</button></h3>
+    <div class="card list-card sel-list">${[...list].sort((a, b) => (balance(b) > 0) - (balance(a) > 0) || byDateDesc(a, b)).map((d) => `<div class="sel-row">
+      <input type="checkbox" class="pick" value="${d.id}" aria-label="Zaznacz dług ${esc(d.desc || d.person)}">${debtRow(d)}</div>`).join('')}</div>
+    <div class="bulk-bar card" hidden>
+      <span class="bulk-info"></span>
+      <div class="row-btns">
+        <button type="button" class="btn danger" data-act="bulkDelete">Usuń</button>
+        <button type="button" class="btn primary" data-act="bulkPay">Spłać zaznaczone</button>
+      </div>
+    </div>
     <h3>Historia</h3>
     <div class="card list-card">${events.map((e) => `<div class="row static"><span class="row-main"><span class="row-title">${esc(e.t)}</span><span class="row-sub">${esc(fmtDate(e.date, { year: true }))}</span></span>
       <span class="row-amt ${e.s > 0 ? 'pos' : 'neg'}">${e.s > 0 ? '+' : '−'}${fmt(e.a)}</span></div>`).join('')}</div>
     <p class="hint">„+” zwiększa to, co ${esc(name)} jest Ci winna/winien.</p>`, { full: true });
+  sheet.dataset.person = name;
+  sheet.addEventListener('change', (ev) => { if (ev.target.classList.contains('pick')) updateBulkBar(sheet); });
+  updateBulkBar(sheet);
+}
+
+// zaznaczanie kilku długów jednej osoby: zbiorcza spłata lub usunięcie
+const pickedDebts = (root) => $$('.pick:checked', root).map((i) => S.debts.find((d) => d.id === i.value)).filter(Boolean);
+function updateBulkBar(root) {
+  const sel = pickedDebts(root), bar = root.querySelector('.bulk-bar');
+  if (!bar) return;
+  const open = sel.filter((d) => balance(d) > 0);
+  const net = open.reduce((a, d) => a + (d.dir === 'in' ? 1 : -1) * balance(d), 0);
+  bar.hidden = !sel.length;
+  bar.querySelector('.bulk-info').innerHTML = `Zaznaczono: <b>${sel.length}</b>${open.length ? ` · do spłaty <b class="${net >= 0 ? 'pos' : 'neg'}">${fmt(net, { sign: true })}</b>` : ''}`;
+  bar.querySelector('[data-act=bulkPay]').disabled = !open.length;
+  const all = $$('.pick', root);
+  root.querySelector('.sel-all').textContent = all.length && all.every((i) => i.checked) ? 'Odznacz wszystkie' : 'Zaznacz wszystkie';
 }
 
 // ---------------------------------------------------------------- Skan paragonu
@@ -1496,8 +1578,8 @@ const ACT = {
     if (!e) return;
     const od = e.owedDebtId ? S.debts.find((d) => d.id === e.owedDebtId) : null;
     if (!confirm(e.debtId ? 'Usunąć ten przychód? Usunie to też powiązaną spłatę długu.' : `Usunąć wpis ${fmt(e.amount)}?${od ? `\nUsunie też powiązany dług (${od.person}, ${fmt(od.amount)}).` : ''}${e.owedDebtIds?.length ? `\nUsunie też powiązane długi (${e.owedDebtIds.length}).` : ''}`)) return;
-    if (od) await removeFrom('debts', S.debts, od.id);
-    for (const id of e.owedDebtIds || []) if (S.debts.some((d) => d.id === id)) await removeFrom('debts', S.debts, id);
+    if (od) await removeDebt(od);
+    for (const id of e.owedDebtIds || []) { const d = S.debts.find((x) => x.id === id); if (d) await removeDebt(d); }
     if (e.debtId) {
       const d = S.debts.find((x) => x.id === e.debtId);
       if (d) { d.payments = d.payments.filter((p) => p.id !== e.paymentId); await saveDebt(d); }
@@ -1529,21 +1611,48 @@ const ACT = {
   openDebt: (el) => openDebt(el.dataset.id),
   editDebt: (el) => openDebtForm(S.debts.find((d) => d.id === el.dataset.id)),
   openPerson: (el) => openPerson(el.dataset.name),
+  selAllDebts: (el) => {
+    const root = el.closest('.sheet'), all = $$('.pick', root), on = !all.every((i) => i.checked);
+    all.forEach((i) => (i.checked = on));
+    updateBulkBar(root);
+  },
+  bulkPay: async (el) => {
+    const root = el.closest('.sheet'), list = pickedDebts(root).filter((d) => balance(d) > 0);
+    if (!list.length) return;
+    const sum = list.reduce((a, d) => a + balance(d), 0);
+    if (!confirm(`Oznaczyć ${list.length} ${plDlug(list.length)} jako spłacone (razem ${fmt(sum)})?`)) return;
+    for (const d of list) await addPayment(d, balance(d), today(), 'Spłata zbiorcza');
+    toast(`Spłacono ${list.length} ${plDlug(list.length)} · ${fmt(sum)}`);
+    render(); openPerson(root.dataset.person);
+  },
+  bulkDelete: async (el) => {
+    const root = el.closest('.sheet'), list = pickedDebts(root);
+    if (!list.length) return;
+    const fromExp = list.filter((d) => d.expenseId).length;
+    if (!confirm(`Usunąć ${list.length} ${plDlug(list.length)} razem z historią spłat?${fromExp ? `\nWydatki, z których powstały (${fromExp}), zostaną.` : ''}`)) return;
+    for (const d of list) {
+      if (!S.debts.includes(d)) continue;
+      await deleteDebtFull(d);
+    }
+    toast(`Usunięto ${list.length} ${plDlug(list.length)}`);
+    render();
+    if (S.debts.some((d) => d.person.trim() === root.dataset.person)) openPerson(root.dataset.person); else closeSheet();
+  },
   deleteDebt: async (el) => {
     const d = S.debts.find((x) => x.id === el.dataset.id);
     const linked = S.entries.filter((e) => e.debtId === d.id);
     if (!confirm(`Usunąć dług ${d.person} (${fmt(d.amount)})?${linked.length ? `\nUsunie też ${linked.length} powiązany(e) przychód(y).` : ''}`)) return;
-    for (const e of linked) await removeFrom('entries', S.entries, e.id);
-    await removeFrom('debts', S.debts, d.id);
+    await deleteDebtFull(d);
     closeSheet(); toast('Usunięto dług'); render();
   },
   deletePayment: async (el) => {
     const d = S.debts.find((x) => x.id === el.dataset.debt);
     const p = d.payments.find((x) => x.id === el.dataset.id);
-    if (!confirm(`Usunąć spłatę ${fmt(p.amount)}?${p.entryId ? '\nUsunie też powiązany przychód.' : ''}`)) return;
+    if (!confirm(`Usunąć ${p.offset ? 'potrącenie' : 'spłatę'} ${fmt(p.amount)}?${p.entryId ? '\nUsunie też powiązany przychód.' : ''}${p.offset ? '\nCofnie je też w drugim długu tej osoby.' : ''}`)) return;
     d.payments = d.payments.filter((x) => x.id !== p.id);
     if (p.entryId) await removeFrom('entries', S.entries, p.entryId);
     await saveDebt(d);
+    if (p.offset) await dropOffsets(new Set([p.offset]));
     render(); openDebt(d.id);
   },
   openScan: () => openScan(),
